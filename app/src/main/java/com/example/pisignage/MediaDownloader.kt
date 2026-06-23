@@ -6,20 +6,11 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
-import java.util.concurrent.TimeUnit
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import okio.BufferedSink
 import okio.Okio
 
 class MediaDownloader(private val context: Context) {
-
-    private val client: OkHttpClient = OkHttpClient.Builder()
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .callTimeout(60, TimeUnit.SECONDS)
-        .retryOnConnectionFailure(true)
-        .build()
 
     /**
      * Downloads media referenced by playlistJson and returns a map:
@@ -88,7 +79,7 @@ class MediaDownloader(private val context: Context) {
                         if (tmpFile.exists()) tmpFile.delete()
 
                         val request = Request.Builder().url(remoteUrl).build()
-                        client.newCall(request).execute().use { resp ->
+                        HttpClient.instance.newCall(request).execute().use { resp ->
                             if (!resp.isSuccessful) {
                                 throw IOException("HTTP ${resp.code()}")
                             }

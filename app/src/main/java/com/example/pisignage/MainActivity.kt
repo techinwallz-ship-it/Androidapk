@@ -313,6 +313,9 @@ class MainActivity : ComponentActivity() {
             }
         } catch (e: Exception) {}
         SocketManager.disconnect()
+        if (::webView.isInitialized) {
+            webView.destroy()
+        }
         super.onDestroy()
     }
 

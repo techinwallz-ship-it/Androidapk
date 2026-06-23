@@ -4,13 +4,11 @@ import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
 
 object PlaylistRepository {
-    private val client = OkHttpClient()
 
     /**
      * Suspend: fetch playlist, download assets, rewrite asset.file_path to local URIs where available,
@@ -20,12 +18,13 @@ object PlaylistRepository {
         try {
             val url = "https://api.inwallz.in/api/devices/$pairingCode/playlist"
             val request = Request.Builder().url(url).build()
-            val response = client.newCall(request).execute()
-            if (!response.isSuccessful) {
-                Log.e("PLAYLIST", "HTTP ${response.code()}")
-                return@withContext
+            val body = HttpClient.instance.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.e("PLAYLIST", "HTTP ${response.code()}")
+                    return@withContext
+                }
+                response.body()?.string() ?: return@withContext
             }
-            val body = response.body()?.string() ?: return@withContext
 
             // Parse JSON so we can mutate assets
             val json = JSONObject(body)
