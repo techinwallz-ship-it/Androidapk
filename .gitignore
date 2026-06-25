@@ -13,3 +13,7 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Backup / archive artifacts
+Androidapk-mem_leak.zip
+*.zip

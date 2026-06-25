@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.util.Base64
 import android.util.Log
 import android.view.ViewGroup
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -55,6 +56,8 @@ class MainActivity : ComponentActivity() {
     private var wasOffline = false
     @Volatile
     private var webViewReady = false
+    @Volatile
+    private var webViewDestroyed = false
 
 
 
@@ -135,6 +138,11 @@ class MainActivity : ComponentActivity() {
             IntentFilter(PlaylistUpdateBus.ACTION_PLAYLIST_UPDATED),
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
+
+        // Keep the process alive (foreground service) and arm the recovery watchdog so an
+        // OS kill relaunches the player instead of leaving the box on the home screen.
+        SignageService.start(this)
+        Watchdog.schedule(this)
 
         // Schedule periodic sync worker (keeps running when network is available)
         schedulePlaylistSync()
@@ -219,6 +227,37 @@ class MainActivity : ComponentActivity() {
 
                     webView.webViewClient = object : WebViewClient() {
 
+                        /**
+                         * The WebView renderer runs in a separate, sandboxed process. When that
+                         * process is killed (OOM on a budget box after hours of looping media),
+                         * Android terminates the WHOLE app unless we handle it here and return true.
+                         * That unhandled kill is the main cause of the "crash → home screen" symptom.
+                         *
+                         * We detach + destroy the dead WebView and recreate the activity, which
+                         * rebuilds a fresh WebView and reloads the playlist — recovering in ~1s
+                         * instead of dropping to the launcher.
+                         */
+                        override fun onRenderProcessGone(
+                            view: WebView,
+                            detail: RenderProcessGoneDetail?
+                        ): Boolean {
+                            val crashed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                                detail?.didCrash() else null
+                            Log.e("WEBVIEW", "Render process gone (didCrash=$crashed) → recovering")
+
+                            try {
+                                (view.parent as? ViewGroup)?.removeView(view)
+                                view.destroy()
+                                webViewDestroyed = true
+                            } catch (e: Exception) {
+                                Log.w("WEBVIEW", "Cleanup of dead WebView failed", e)
+                            }
+
+                            if (!isFinishing && !isDestroyed) {
+                                recreate() // rebuilds a fresh WebView via setContent factory
+                            }
+                            return true // handled — do NOT let the OS kill the app process
+                        }
 
                         override fun onPageFinished(view: WebView, url: String) {
 
@@ -313,6 +352,9 @@ class MainActivity : ComponentActivity() {
             }
         } catch (e: Exception) {}
         SocketManager.disconnect()
+        if (::webView.isInitialized && !webViewDestroyed) {
+            webView.destroy()
+        }
         super.onDestroy()
     }
 

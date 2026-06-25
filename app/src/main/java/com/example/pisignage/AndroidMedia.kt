@@ -13,6 +13,10 @@ import java.nio.charset.StandardCharsets
 
 class AndroidMedia(private val context: Context) {
 
+    companion object {
+        private const val MAX_DATA_URI_BYTES = 4 * 1024 * 1024L // 4 MB
+    }
+
     private fun L(tag: String, msg: String) { Log.d("AndroidMedia", "$tag: $msg") }
 
     private fun decodeName(name: String): String {
@@ -141,6 +145,11 @@ class AndroidMedia(private val context: Context) {
             val name = extractFileName(filePath)
             val mediaDir = File(context.filesDir, "media")
             val file = File(mediaDir, name)
+
+            if (file.exists() && file.length() > MAX_DATA_URI_BYTES) {
+                L("getLocalMediaData", "file too large (${file.length()} bytes), use getLocalMediaPath instead")
+                return ""
+            }
 
             val bytes = when {
                 file.exists() -> FileInputStream(file).use { it.readBytes() }

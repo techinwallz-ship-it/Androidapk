@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>PiSignage Android — App Flowchart</title>
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  body{background:#0d1117;color:#e2e8f0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:32px 20px 80px;font-size:13px}
+  h1{font-size:20px;font-weight:700;color:#f8fafc;margin-bottom:4px}
+  .subtitle{color:#64748b;font-size:12px;margin-bottom:36px}
+
+  /* ── Layout ── */
+  .page{max-width:1100px;margin:0 auto}
+  .flows{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:24px}
+  .flows.three{grid-template-columns:1fr 1fr 1fr}
+  .flows.full{grid-template-columns:1fr}
+
+  /* ── Section card ── */
+  .flow-card{background:#161b27;border:1px solid #1e293b;border-radius:14px;padding:20px 18px}
+  .flow-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:16px;padding-bottom:8px;border-bottom:1px solid #1e293b}
+  .flow-title.blue  {color:#60a5fa;border-color:#1e3a6e}
+  .flow-title.green {color:#4ade80;border-color:#166534}
+  .flow-title.purple{color:#c084fc;border-color:#4a1d96}
+  .flow-title.orange{color:#fb923c;border-color:#7c2d12}
+  .flow-title.red   {color:#f87171;border-color:#7f1d1d}
+  .flow-title.teal  {color:#2dd4bf;border-color:#0f4c42}
+
+  /* ── Nodes ── */
+  .node{
+    border-radius:8px;padding:8px 12px;font-size:12px;font-weight:500;
+    text-align:center;line-height:1.4;position:relative
+  }
+  .node.trigger  {background:#1e1b4b;border:1px solid #4338ca;color:#a5b4fc}
+  .node.process  {background:#0f2a0f;border:1px solid #166534;color:#86efac}
+  .node.decision {background:#1c1107;border:1px solid #92400e;color:#fcd34d;border-radius:6px}
+  .node.io       {background:#0c1a3a;border:1px solid #1e3a8a;color:#93c5fd}
+  .node.warning  {background:#2a0a0a;border:1px solid #7f1d1d;color:#fca5a5}
+  .node.storage  {background:#1a1200;border:1px solid #854d0e;color:#fde68a}
+  .node.js       {background:#1a0f2e;border:1px solid #6b21a8;color:#d8b4fe}
+  .node.system   {background:#1a1d2e;border:1px solid #334155;color:#94a3b8}
+  .node.socket   {background:#0f2020;border:1px solid #0f766e;color:#5eead4}
+
+  /* ── Arrow ── */
+  .arrow{
+    display:flex;align-items:center;justify-content:center;
+    color:#334155;font-size:18px;line-height:1;
+    margin:4px 0;flex-shrink:0
+  }
+  .arrow.right{transform:rotate(-90deg);margin:0 4px}
+  .arrow-label{font-size:10px;color:#64748b;text-align:center;margin:-2px 0 2px}
+
+  /* ── Vertical chain ── */
+  .chain{display:flex;flex-direction:column;gap:0}
+
+  /* ── Horizontal group ── */
+  .hgroup{display:flex;gap:8px;align-items:center;justify-content:center;margin:4px 0}
+  .hgroup .arrow{margin:0 2px}
+
+  /* ── Parallel trigger block ── */
+  .parallel{display:flex;flex-direction:column;gap:6px;padding:10px;background:#0d1117;border:1px dashed #334155;border-radius:8px;margin:4px 0}
+  .parallel-label{font-size:10px;color:#475569;text-align:center;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.8px}
+
+  /* ── Warning badge ── */
+  .badge{display:inline-block;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;margin-left:6px;vertical-align:middle}
+  .badge.warn{background:#450a0a;color:#fca5a5;border:1px solid #7f1d1d}
+  .badge.new {background:#052e16;color:#4ade80;border:1px solid #166534}
+
+  /* ── Legend ── */
+  .legend{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:28px}
+  .leg{display:flex;align-items:center;gap:6px;font-size:11px;color:#64748b}
+  .leg-dot{width:12px;height:12px;border-radius:3px;flex-shrink:0}
+
+  /* ── Two col ── */
+  .two-col{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+
+  .note{font-size:10px;color:#64748b;text-align:center;margin-top:6px;font-style:italic}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <h1>PiSignage Android — Application Flowchart</h1>
+  <p class="subtitle">Quick reference · mem_leak branch · June 2026</p>
+
+  <!-- Legend -->
+  <div class="legend">
+    <div class="leg"><div class="leg-dot" style="background:#1e1b4b;border:1px solid #4338ca"></div> Trigger / Entry</div>
+    <div class="leg"><div class="leg-dot" style="background:#0f2a0f;border:1px solid #166534"></div> Process</div>
+    <div class="leg"><div class="leg-dot" style="background:#1c1107;border:1px solid #92400e"></div> Decision</div>
+    <div class="leg"><div class="leg-dot" style="background:#0c1a3a;border:1px solid #1e3a8a"></div> I/O (Network / File)</div>
+    <div class="leg"><div class="leg-dot" style="background:#1a1200;border:1px solid #854d0e"></div> Storage</div>
+    <div class="leg"><div class="leg-dot" style="background:#1a0f2e;border:1px solid #6b21a8"></div> JS / WebView</div>
+    <div class="leg"><div class="leg-dot" style="background:#2a0a0a;border:1px solid #7f1d1d"></div> Known Issue</div>
+    <div class="leg"><div class="leg-dot" style="background:#0f2020;border:1px solid #0f766e"></div> Socket.IO</div>
+  </div>
+
+  <!-- Row 1: Boot + MainActivity Init -->
+  <div class="flows">
+
+    <!-- FLOW 1: Boot -->
+    <div class="flow-card">
+      <div class="flow-title blue">① Boot Flow</div>
+      <div class="chain">
+        <div class="node trigger">📦 Device Powers On / Reboots</div>
+        <div class="arrow">↓</div>
+        <div class="node process">BootReceiver.onReceive()<br><small>ACTION_BOOT_COMPLETED</small></div>
+        <div class="arrow">↓</div>
+        <div class="node process">SplashActivity<br><small>Lottie animation plays</small></div>
+        <div class="arrow">↓</div>
+        <div class="node process" style="border-color:#22c55e">MainActivity.onCreate()</div>
+        <div class="arrow">↓</div>
+        <div class="node warning">startLockTask() → Kiosk Mode<span class="badge warn">⚠ May silently fail</span></div>
+      </div>
+    </div>
+
+    <!-- FLOW 2: MainActivity Init -->
+    <div class="flow-card">
+      <div class="flow-title green">② MainActivity Startup</div>
+      <div class="chain">
+        <div class="node process">Register playlistReceiver<br><small>BroadcastReceiver for playlist updates</small></div>
+        <div class="arrow">↓</div>
+        <div class="node process">WorkManager: Schedule 15-min periodic sync</div>
+        <div class="arrow">↓</div>
+        <div class="node process">WorkManager: Enqueue one-time sync NOW</div>
+        <div class="arrow">↓</div>
+        <div class="node process">Register NetworkCallback<br><small>onAvailable / onLost</small></div>
+        <div class="arrow">↓</div>
+        <div class="node js">Create WebView + JS Bridges<br><small>AndroidBridge · AndroidMedia · AndroidApp</small></div>
+        <div class="arrow">↓</div>
+        <div class="node process">⏱ 500ms delay → loadUrl("file:///android_asset/index.html")</div>
+        <div class="arrow">↓</div>
+        <div class="node warning">triggerImmediateSyncIfOnline()<span class="badge warn">⚠ Called twice on startup</span></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Row 2: onPageFinished + Three Sync Triggers -->
+  <div class="flows">
+
+    <!-- FLOW 3: onPageFinished -->
+    <div class="flow-card">
+      <div class="flow-title teal">③ WebView Ready (onPageFinished)</div>
+      <div class="chain">
+        <div class="node js">WebView finishes loading index.html</div>
+        <div class="arrow">↓</div>
+        <div class="node storage">Read SharedPrefs → "last_playlist"</div>
+        <div class="arrow">↓</div>
+        <div class="node js">evaluateJavascript()<br><small>Inject playlist + navigate → #/display</small></div>
+        <div class="arrow">↓</div>
+        <div class="node storage">Read SharedPrefs → "pairing_code"</div>
+        <div class="arrow">↓</div>
+        <div class="node decision">pairing_code exists?</div>
+        <div class="arrow">↓</div>
+        <div class="node socket">SocketManager.connect(pairingCode)<br><small>IO.socket("https://api.inwallz.in")</small></div>
+        <div class="arrow">↓</div>
+        <div class="node socket">emit("join-tv", pairingCode)</div>
+      </div>
+    </div>
+
+    <!-- FLOW 4: Three Sync Triggers -->
+    <div class="flow-card">
+      <div class="flow-title orange">④ Sync Triggers <span class="badge warn">⚠ No Mutex — Run Concurrently</span></div>
+      <div class="chain">
+        <div class="parallel">
+          <div class="parallel-label">3 independent triggers</div>
+          <div class="node trigger">🕐 WorkManager — every 15 min</div>
+          <div class="node trigger">📶 NetworkCallback.onAvailable()</div>
+          <div class="node socket">🔌 Socket "start-playlist" event</div>
+        </div>
+        <div class="arrow">↓</div>
+        <div class="node warning">PlaylistRepository.fetchAndSave()<br><small>All 3 paths call this simultaneously</small></div>
+        <div class="arrow">↓</div>
+        <div class="node io">GET api.inwallz.in/api/devices/{code}/playlist</div>
+        <div class="arrow">↓</div>
+        <div class="node process">MediaDownloader.syncMediaAndReturnMap()</div>
+        <div class="arrow">↓</div>
+        <div class="node warning">MediaCleaner.cleanUnusedFiles()<span class="badge warn">⚠ Race condition</span></div>
+        <div class="arrow">↓</div>
+        <div class="node storage">SharedPrefs.putString("last_playlist", json)</div>
+        <div class="arrow">↓</div>
+        <div class="node process">PlaylistUpdateBus.send() → Broadcast</div>
+        <div class="arrow">↓</div>
+        <div class="node js">playlistReceiver → evaluateJavascript()<br><small>Inject updated playlist into WebView</small></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Row 3: Media Download + JS Bridge -->
+  <div class="flows">
+
+    <!-- FLOW 5: Media Download Detail -->
+    <div class="flow-card">
+      <div class="flow-title purple">⑤ Media Download (per asset)</div>
+      <div class="chain">
+        <div class="node process">For each asset in playlist JSON</div>
+        <div class="arrow">↓</div>
+        <div class="node decision">file exists locally AND size &gt; 0?</div>
+        <div class="hgroup">
+          <div style="text-align:center;flex:1">
+            <div style="color:#4ade80;font-size:11px;margin-bottom:4px">YES</div>
+            <div class="node process">Use existing file<br><small>Return file:// URI</small></div>
+          </div>
+          <div style="color:#334155;font-size:20px">|</div>
+          <div style="text-align:center;flex:1">
+            <div style="color:#f87171;font-size:11px;margin-bottom:4px">NO</div>
+            <div class="node io">Download to<br>filename.tmp<br><small>Up to 3 retries</small></div>
+          </div>
+        </div>
+        <div class="arrow">↓</div>
+        <div class="node decision">Download success?</div>
+        <div class="hgroup">
+          <div style="text-align:center;flex:1">
+            <div style="color:#4ade80;font-size:11px;margin-bottom:4px">YES</div>
+            <div class="node process">.tmp → rename to final<br><small>filesDir/media/</small></div>
+          </div>
+          <div style="color:#334155;font-size:20px">|</div>
+          <div style="text-align:center;flex:1">
+            <div style="color:#f87171;font-size:11px;margin-bottom:4px">NO (3 attempts)</div>
+            <div class="node warning">Use old file<br>if exists, else skip</div>
+          </div>
+        </div>
+        <div class="arrow">↓</div>
+        <div class="node warning">MediaCleaner: delete files<br>NOT in current playlist<span class="badge warn">⚠ Race</span></div>
+        <div class="note">⚠ No hash check — re-downloads if file replaced with same size</div>
+      </div>
+    </div>
+
+    <!-- FLOW 6: JS Bridge -->
+    <div class="flow-card">
+      <div class="flow-title red">⑥ JS ↔ Android Bridge Calls</div>
+      <div class="chain">
+        <div class="node js">WebView JavaScript (React SPA)</div>
+        <div class="arrow">↓</div>
+
+        <div style="display:flex;flex-direction:column;gap:10px">
+
+          <div style="border:1px solid #1e293b;border-radius:8px;padding:10px">
+            <div class="node js" style="margin-bottom:6px">AndroidBridge.savePairingCode(code)</div>
+            <div class="arrow">↓</div>
+            <div class="node storage">SharedPrefs.putString("pairing_code", code)</div>
+            <div class="note">Called once when user enters pairing code in UI</div>
+          </div>
+
+          <div style="border:1px solid #1e293b;border-radius:8px;padding:10px">
+            <div class="node js" style="margin-bottom:6px">AndroidMedia.getLocalMediaPath(filePath)</div>
+            <div class="arrow">↓</div>
+            <div class="node process">Lookup filesDir/media/{name}<br><small>Falls back to android_asset</small></div>
+            <div class="arrow">↓</div>
+            <div class="node io">Returns file:// URI → WebView renders media</div>
+          </div>
+
+          <div style="border:1px solid #1e293b;border-radius:8px;padding:10px">
+            <div class="node js" style="margin-bottom:6px">AndroidMedia.getLocalMediaData(filePath)</div>
+            <div class="arrow">↓</div>
+            <div class="node decision">file size ≤ 4 MB?<span class="badge new">Fixed</span></div>
+            <div class="hgroup">
+              <div style="text-align:center;flex:1">
+                <div style="color:#4ade80;font-size:11px;margin-bottom:4px">YES</div>
+                <div class="node io">Returns data:image/...;base64</div>
+              </div>
+              <div style="color:#334155;font-size:20px">|</div>
+              <div style="text-align:center;flex:1">
+                <div style="color:#f87171;font-size:11px;margin-bottom:4px">NO (&gt;4MB)</div>
+                <div class="node system">Returns "" → fallback to getLocalMediaPath</div>
+              </div>
+            </div>
+          </div>
+
+          <div style="border:1px solid #1e293b;border-radius:8px;padding:10px">
+            <div class="node js" style="margin-bottom:6px">AndroidApp.onAppReady()</div>
+            <div class="arrow">↓</div>
+            <div class="node system">Log.d only — no action wired up</div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Row 4: onDestroy + Known Issues Summary -->
+  <div class="flows">
+
+    <!-- FLOW 7: Cleanup -->
+    <div class="flow-card">
+      <div class="flow-title teal">⑦ App Teardown (onDestroy)</div>
+      <div class="chain">
+        <div class="node trigger">App killed / onDestroy called</div>
+        <div class="arrow">↓</div>
+        <div class="node process">unregisterReceiver(playlistReceiver)</div>
+        <div class="arrow">↓</div>
+        <div class="node process">unregisterNetworkCallback()</div>
+        <div class="arrow">↓</div>
+        <div class="node socket">SocketManager.disconnect()<br><small>cancel supervisorJob + socket.off()</small></div>
+        <div class="arrow">↓</div>
+        <div class="node js">webView.destroy()<span class="badge new">Fixed</span></div>
+        <div class="arrow">↓</div>
+        <div class="node warning">❌ No Foreground Service<br><small>OS kill = no auto-restart until next reboot</small></div>
+      </div>
+    </div>
+
+    <!-- Known Issues Summary -->
+    <div class="flow-card">
+      <div class="flow-title red">⚠ Open Issues (not yet fixed)</div>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px">
+        <div class="node warning">① Concurrent sync (no Mutex)<br><small>WorkManager + Network + Socket run simultaneously → MediaCleaner race</small></div>
+        <div class="node warning">② No Foreground Service<br><small>OS kills Activity → no restart → home screen</small></div>
+        <div class="node warning">③ startLockTask() silent fail<br><small>Kiosk may never be active on assembled boxes</small></div>
+        <div class="node warning">④ onPause() restart loop<br><small>Unreliable on TV boxes, no singleTask launchMode</small></div>
+        <div class="node warning">⑤ Duplicate socket on reconnect<br><small>CONNECTING state bypasses guard</small></div>
+        <div class="node warning">⑥ No hash-based sync<br><small>Re-downloads unchanged media files every cycle</small></div>
+        <div class="node warning">⑦ triggerImmediateSync called twice on startup</div>
+        <div class="node warning">⑧ WebDebugging enabled in production</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Data stores summary -->
+  <div class="flows full">
+    <div class="flow-card">
+      <div class="flow-title blue">📦 Data Stores</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+        <div class="chain">
+          <div class="node storage" style="font-weight:700">SharedPreferences<br><small>"signage"</small></div>
+          <div style="margin-top:8px;font-size:11px;color:#64748b;line-height:1.8;padding-left:8px">
+            "pairing_code" → device pairing<br>
+            "last_playlist" → full playlist JSON<br>
+            <span style="color:#fca5a5">Keys hardcoded in 6 files</span>
+          </div>
+        </div>
+        <div class="chain">
+          <div class="node io" style="font-weight:700">Local File Storage<br><small>context.filesDir/media/</small></div>
+          <div style="margin-top:8px;font-size:11px;color:#64748b;line-height:1.8;padding-left:8px">
+            Downloaded media files<br>
+            .tmp files during download<br>
+            Cleaned by MediaCleaner
+          </div>
+        </div>
+        <div class="chain">
+          <div class="node js" style="font-weight:700">WebView localStorage<br><small>(JS side)</small></div>
+          <div style="margin-top:8px;font-size:11px;color:#64748b;line-height:1.8;padding-left:8px">
+            'lastPlaylist' → injected from Android<br>
+            'pairingCode' → injected from Android<br>
+            window.__PLAYLIST__ → runtime var
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="text-align:center;color:#334155;font-size:11px;margin-top:40px;padding-top:16px;border-top:1px solid #1e293b">
+    PiSignage Android · techinwallz-ship-it/Androidapk · mem_leak branch · June 2026
+  </div>
+
+</div>
+</body>
+</html>
