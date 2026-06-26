@@ -27,15 +27,15 @@ Android digital signage player for assembled Android TV boxes.
 | `MainActivity.kt` | WebView, kiosk, network callback, playlist injection | Has issues |
 | `AndroidBridge.kt` | JS interface: `savePairingCode()` | OK |
 | `AndroidMedia.kt` | JS interface: media path/data lookup | Fixed |
-| `AndriodApp.kt` | JS interface: `onAppReady()` hook | Dead hook — filename typo |
+| `AndroidApp.kt` | JS interface: `onAppReady()` hook | OK (renamed from `AndriodApp.kt`) |
 | `SocketManager.kt` | Socket.IO connection | Fixed |
 | `PlaylistRepository.kt` | HTTP fetch + download + save + notify | Has concurrency issue |
 | `MediaDownloader.kt` | Downloads individual media files with retry | Fixed |
 | `MediaCleaner.kt` | Deletes unused media from disk | Race condition |
 | `PlaylistSyncWorker.kt` | WorkManager 15-min periodic worker | OK |
-| `PlaylistStorage.kt` | SharedPrefs wrapper | **Dead code — never called** |
+| ~~`PlaylistStorage.kt`~~ | SharedPrefs wrapper | **Deleted (dead code)** |
 | `PlaylistUpdateBus.kt` | LocalBroadcast sender | OK |
-| `PlaylistBroadcaster.kt` | Sends same broadcast | **Dead code — duplicates PlaylistUpdateBus** |
+| ~~`PlaylistBroadcaster.kt`~~ | Sends same broadcast | **Deleted (duplicated PlaylistUpdateBus)** |
 | `HttpClient.kt` | Shared OkHttpClient singleton | New (added in mem_leak) |
 | `SignageService.kt` | Keep-alive foreground service (START_STICKY) | **New (added in next)** |
 | `Watchdog.kt` | AlarmManager recovery scheduler | **New (added in next)** |
@@ -189,9 +189,15 @@ once (new deployments / RMA / on-site), not silently on existing remote boxes.
 > **How to use it:** watch `pss` over hours. Steady climb = a leak the recovery is masking (revisit
 > P1-3 base64). `low=true` right before a restart = an OOM kill.
 
-**Remaining P3 (hygiene / security — not crash-related):** `WebContentsDebuggingEnabled` → `BuildConfig.DEBUG`;
-`AppConfig.kt` for hardcoded URLs/keys; delete `PlaylistStorage.kt` + `PlaylistBroadcaster.kt`; rename
-`AndriodApp.kt`; `allowBackup=false` + `exported=false`; R8 minification; hash-based sync (needs server `sha256`).
+**P3 hygiene — DONE in `next`:** `WebContentsDebuggingEnabled` → `BuildConfig.DEBUG`; `AppConfig.kt`
+created + URLs/keys refactored; deleted `PlaylistStorage.kt` + `PlaylistBroadcaster.kt`; renamed
+`AndriodApp.kt` → `AndroidApp.kt`; `allowBackup=false`; **R8 minification enabled** with keep rules for
+`@JavascriptInterface` / Socket.IO / OkHttp (release builds clean).
+
+**P3 hygiene — intentionally NOT done:**
+- `MainActivity exported=false` — **obsolete:** it now carries a HOME-launcher intent-filter, so it
+  must stay `exported=true` (externally launchable). The original audit advice predates P2-5.
+- Hash-based sync — needs a server `sha256` field; bandwidth optimization, not crash-related.
 
 ---
 

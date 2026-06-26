@@ -22,7 +22,7 @@ object SocketManager {
         // CONNECTING, creating duplicate connections on reconnect. (AUDIT P2-4)
         if (socket != null) return
 
-        socket = IO.socket("https://api.inwallz.in")
+        socket = IO.socket(AppConfig.SOCKET_URL)
 
         socket?.on(Socket.EVENT_CONNECT) {
             Log.d("SOCKET", "✅ Connected")

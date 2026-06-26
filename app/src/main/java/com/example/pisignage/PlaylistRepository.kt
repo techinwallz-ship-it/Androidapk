@@ -24,7 +24,7 @@ object PlaylistRepository {
     suspend fun fetchAndSave(context: Context, pairingCode: String) = withContext(Dispatchers.IO) {
         mutex.withLock {
         try {
-            val url = "https://api.inwallz.in/api/devices/$pairingCode/playlist"
+            val url = "${AppConfig.API_BASE_URL}/api/devices/$pairingCode/playlist"
             val request = Request.Builder().url(url).build()
             val body = HttpClient.instance.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
@@ -75,9 +75,9 @@ object PlaylistRepository {
 
             val finalJson = json.toString()
 
-            val prefs = context.getSharedPreferences("signage", Context.MODE_PRIVATE)
+            val prefs = context.getSharedPreferences(AppConfig.PREFS_NAME, Context.MODE_PRIVATE)
             prefs.edit()
-                .putString("last_playlist", finalJson)
+                .putString(AppConfig.KEY_PLAYLIST, finalJson)
                 .apply()
 
             Log.d("PLAYLIST", "✅ Saved playlist (with local paths where available) to prefs")

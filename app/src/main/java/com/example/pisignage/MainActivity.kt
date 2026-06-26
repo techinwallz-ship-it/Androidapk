@@ -77,9 +77,9 @@ class MainActivity : ComponentActivity() {
         override fun onReceive(context: Context?, intent: Intent?) {
             Log.d("PLAYLIST", "🔥 Playlist changed → inject into WebView")
 
-            val prefs = getSharedPreferences("signage", MODE_PRIVATE)
-            val playlistJson = prefs.getString("last_playlist", null) ?: return
-            val pairingCode = prefs.getString("pairing_code", null)
+            val prefs = getSharedPreferences(AppConfig.PREFS_NAME, MODE_PRIVATE)
+            val playlistJson = prefs.getString(AppConfig.KEY_PLAYLIST, null) ?: return
+            val pairingCode = prefs.getString(AppConfig.KEY_PAIRING, null)
 
             webView.post {
                 try {
@@ -222,7 +222,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    WebView.setWebContentsDebuggingEnabled(true)
+                    WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
 
                     // Register JS bridges expected by the web UI
                     webView.addJavascriptInterface(AndroidMedia(context), "AndroidMedia")
@@ -275,11 +275,11 @@ class MainActivity : ComponentActivity() {
                             // ✅ FIX: Online reboot media recovery (ONE TIME)
 
                             // 🔁 CRITICAL: fix white screen after reboot
-                            val prefs = getSharedPreferences("signage", MODE_PRIVATE)
-                            prefs.getString("last_playlist", null)?.let { lastPlaylist ->
+                            val prefs = getSharedPreferences(AppConfig.PREFS_NAME, MODE_PRIVATE)
+                            prefs.getString(AppConfig.KEY_PLAYLIST, null)?.let { lastPlaylist ->
                                 try {
                                     val base64 = Base64.encodeToString(lastPlaylist.toByteArray(), Base64.NO_WRAP)
-                                    val pairingCode = prefs.getString("pairing_code", null)
+                                    val pairingCode = prefs.getString(AppConfig.KEY_PAIRING, null)
                                     val pairingBase64 = pairingCode?.let { Base64.encodeToString(it.toByteArray(), Base64.NO_WRAP) } ?: ""
                                     val js = """
                                     (function() {
@@ -321,7 +321,7 @@ class MainActivity : ComponentActivity() {
                             }
 
                             // Start socket if pairing code present (socket handles real-time updates)
-                            prefs.getString("pairing_code", null)?.let {
+                            prefs.getString(AppConfig.KEY_PAIRING, null)?.let {
                                 SocketManager.connect(applicationContext, it)
                             }
                         }
@@ -430,8 +430,8 @@ class MainActivity : ComponentActivity() {
      * Runs on the lifecycleScope IO dispatcher to avoid blocking main thread.
      */
     private fun triggerImmediateSyncIfOnline() {
-        val prefs = getSharedPreferences("signage", MODE_PRIVATE)
-        val pairingCode = prefs.getString("pairing_code", null) ?: return
+        val prefs = getSharedPreferences(AppConfig.PREFS_NAME, MODE_PRIVATE)
+        val pairingCode = prefs.getString(AppConfig.KEY_PAIRING, null) ?: return
         if (!isOnline()) return
 
         // Launch a background coroutine to fetch & save playlist

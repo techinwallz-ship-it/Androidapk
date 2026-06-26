@@ -144,7 +144,7 @@ class MediaDownloader(private val context: Context) {
             filePath
         } else {
             val path = if (filePath.startsWith("/")) filePath else "/$filePath"
-            "https://api.inwallz.in$path"
+            "${AppConfig.API_BASE_URL}$path"
         }
     }
 }
