@@ -184,10 +184,18 @@ once (new deployments / RMA / on-site), not silently on existing remote boxes.
 | # | Task | File | Status |
 |---|---|---|---|
 | P3-5 | Global crash handler → Logcat (`CRASH`) + rolling `filesDir/crash.log` (survives restart, pull via `adb shell run-as ... cat files/crash.log`) | `CrashReporter.kt` (new), `SignageApp.kt` (new), manifest | ✅ Done |
-| P3-5 | 5-min memory telemetry → Logcat (`MEMSTAT`): heap / pss / sysAvail / low flag — `adb logcat -s MEMSTAT` | `MemoryMonitor.kt` (new), `SignageApp.kt` | ✅ Done |
+| P3-5 | 15-min memory telemetry → Logcat (`MEMSTAT`): heap / avail / low flag — `adb logcat -s MEMSTAT` | `MemoryMonitor.kt` (new), `SignageApp.kt` | ✅ Done |
 
-> **How to use it:** watch `pss` over hours. Steady climb = a leak the recovery is masking (revisit
-> P1-3 base64). `low=true` right before a restart = an OOM kill.
+> **How to use it:** watch `avail`/`heap` over hours. Steady climb = a leak the recovery is masking
+> (revisit P1-3 base64). `low=true` right before a restart = an OOM kill.
+
+> **⚠️ Regression fixed (2026-06-26):** the first telemetry version ran on the **main thread** and
+> called `Debug.getMemoryInfo()` (walks /proc/self/smaps; cost grows with process size). Every 5 min
+> it froze the UI thread for hundreds of ms — increasingly as memory grew — causing **video to lag
+> after ~30 min** (smooth again on restart). Fixed: moved to a background `HandlerThread`, 15-min
+> interval, dropped the expensive `Debug.getMemoryInfo()` for the cheap `ActivityManager` snapshot.
+> Also reverted P1-4 `cacheMode` back to `LOAD_NO_CACHE` (LOAD_DEFAULT retained remote resources and
+> compounded the growth). **Never sample memory on the UI thread.**
 
 **P3 hygiene — DONE in `next`:** `WebContentsDebuggingEnabled` → `BuildConfig.DEBUG`; `AppConfig.kt`
 created + URLs/keys refactored; deleted `PlaylistStorage.kt` + `PlaylistBroadcaster.kt`; renamed

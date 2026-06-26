@@ -211,9 +211,10 @@ class MainActivity : ComponentActivity() {
                         allowFileAccess = true
                         allowContentAccess = true
                         mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                        // Local file:// SPA assets don't need cache-busting; LOAD_NO_CACHE just
-                        // forces re-parsing and adds memory churn. (AUDIT P1 #4)
-                        cacheMode = WebSettings.LOAD_DEFAULT
+                        // Reverted to LOAD_NO_CACHE: LOAD_DEFAULT let the WebView retain remote
+                        // resources in cache/memory, adding to the growth that contributed to
+                        // video lag over time. (AUDIT P1 #4 — reverted)
+                        cacheMode = WebSettings.LOAD_NO_CACHE
 
 
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
