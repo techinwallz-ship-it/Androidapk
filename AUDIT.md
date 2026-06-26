@@ -189,7 +189,21 @@ once (new deployments / RMA / on-site), not silently on existing remote boxes.
 > **How to use it:** watch `avail`/`heap` over hours. Steady climb = a leak the recovery is masking
 > (revisit P1-3 base64). `low=true` right before a restart = an OOM kill.
 
-> **⚠️ Regression fixed (2026-06-26):** the first telemetry version ran on the **main thread** and
+> **⚠️ Video-lag root cause FOUND & FIXED (2026-06-26):** the lag was NOT memory size in the Java
+> heap (that stayed at ~6 MB) and NOT the telemetry/cache changes. `dumpsys meminfo` showed
+> **WebViews: 2, Activities: 2–3 (churning), ViewRootImpl 2→1**, and the single in-process app RSS
+> climbing 91 → 131 → 178 MB. Root cause: **duplicate, churning MainActivity + WebView instances.**
+> P2-5's HOME-launcher filter + `singleTask` let MainActivity spawn in a 2nd task; the old
+> `onPause→startActivity(self)` loop + the 10-min watchdog then kept the instances ping-ponging,
+> bloating the in-process native heap (alloc spiked to 184 MB) → video decoder starved → lag at
+> ~30 min (reopening the app, which drops the duplicates, fixed it — process pid unchanged).
+> **Fix:** `launchMode` → `singleInstance` (exactly one MainActivity, ever, regardless of
+> launcher/HOME/watchdog); `onPause` now `moveTaskToFront(taskId)` instead of `startActivity` (can
+> never create a duplicate); watchdog `startActivity` is safe under singleInstance (re-fronts or
+> cold-relaunches the single instance). Verify with `dumpsys meminfo` → must show **WebViews: 1,
+> Activities: 1** after hours.
+
+> **⚠️ Earlier regression fixed (2026-06-26):** the first telemetry version ran on the **main thread** and
 > called `Debug.getMemoryInfo()` (walks /proc/self/smaps; cost grows with process size). Every 5 min
 > it froze the UI thread for hundreds of ms — increasingly as memory grew — causing **video to lag
 > after ~30 min** (smooth again on restart). Fixed: moved to a background `HandlerThread`, 15-min

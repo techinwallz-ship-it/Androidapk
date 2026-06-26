@@ -23,6 +23,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Lets onPause re-front our own task without launching a new activity instance -->
+    <uses-permission android:name="android.permission.REORDER_TASKS" />
 
 
     <application
@@ -71,7 +73,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:launchMode="singleTask"
+            android:launchMode="singleInstance"
             android:screenOrientation="sensorLandscape">
 
             <!-- HOME-launcher: when set as the default Home app, any "drop to home" returns

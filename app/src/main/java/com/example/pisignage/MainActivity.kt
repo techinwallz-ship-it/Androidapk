@@ -499,10 +499,18 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         super.onPause()
 
+        // Keep the kiosk in the foreground WITHOUT launching a new activity. The old code called
+        // startActivity(MainActivity) here, which — combined with the HOME-launcher filter and
+        // singleTask — spawned a 2nd MainActivity/WebView in another task and made the two
+        // instances ping-pong (the duplicate-WebView leak behind the video lag). moveTaskToFront
+        // re-fronts our existing task and, with singleInstance, can never create a duplicate.
         if (!adminUnlocked) {
-            val intent = Intent(this, MainActivity::class.java)
-            intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
-            startActivity(intent)
+            try {
+                val am = getSystemService(ActivityManager::class.java)
+                am?.moveTaskToFront(taskId, 0)
+            } catch (e: Exception) {
+                Log.w("KIOSK", "moveTaskToFront failed", e)
+            }
         }
     }
 }
