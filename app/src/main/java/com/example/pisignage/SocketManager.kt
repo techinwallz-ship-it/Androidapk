@@ -18,7 +18,9 @@ object SocketManager {
     fun connect(context: Context, pairingCode: String) {
         val appContext = context.applicationContext
 
-        if (socket?.connected() == true) return
+        // Guard on null, not connected(): the old check passed while the socket was still
+        // CONNECTING, creating duplicate connections on reconnect. (AUDIT P2-4)
+        if (socket != null) return
 
         socket = IO.socket("https://api.inwallz.in")
 

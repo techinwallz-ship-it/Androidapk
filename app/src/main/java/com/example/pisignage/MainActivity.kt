@@ -1,5 +1,6 @@
 package com.example.pisignage
 
+import android.app.ActivityManager
 import android.content.*
 import android.net.ConnectivityManager
 import android.net.Network
@@ -452,6 +453,13 @@ class MainActivity : ComponentActivity() {
         } catch (e: Exception) {
             Log.e("KIOSK", "Failed to start kiosk mode", e)
         }
+
+        // Verify the lock actually engaged. Without Device Owner this is best-effort
+        // screen-pinning and may NOT be active — log the real state so we can tell from
+        // the field whether a box is truly locked. (AUDIT P2-1)
+        val am = getSystemService(ActivityManager::class.java)
+        val state = am?.lockTaskModeState ?: ActivityManager.LOCK_TASK_MODE_NONE
+        Log.d("KIOSK", "Lock task active=${state != ActivityManager.LOCK_TASK_MODE_NONE} (state=$state)")
     }
     override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent): Boolean {
 

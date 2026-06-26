@@ -70,9 +70,18 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTask"
             android:screenOrientation="sensorLandscape">
 
-
+            <!-- HOME-launcher: when set as the default Home app, any "drop to home" returns
+                 straight to the player instead of the system launcher. No Device Owner / ADB
+                 needed; becoming the *default* still requires a one-time per-device selection.
+                 (AUDIT P2-5) -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
 
         </activity>
 

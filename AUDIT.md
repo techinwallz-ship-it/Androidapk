@@ -167,11 +167,11 @@ is reduced (not eliminated) by P1.
 
 | # | Task | File | Ships via app update? | Status |
 |---|---|---|---|---|
-| P2-1 | Verify/log `startLockTask()` state (informational; lock task without Device Owner = best-effort screen pinning) | `MainActivity.kt` | ✅ Yes | ⬜ Pending |
-| P2-3 | `singleTask` launchMode on MainActivity (prevent instance stacking) | `AndroidManifest.xml` | ✅ Yes | ⬜ Pending |
-| P2-4 | Fix duplicate socket guard (`socket != null`) — CONNECTING state bypasses current guard | `SocketManager.kt` | ✅ Yes | ⬜ Pending |
+| P2-1 | Verify/log `startLockTask()` state (informational; lock task without Device Owner = best-effort screen pinning) | `MainActivity.kt` | ✅ Yes | ✅ Done |
+| P2-3 | `singleTask` launchMode on MainActivity (prevent instance stacking) | `AndroidManifest.xml` | ✅ Yes | ✅ Done |
+| P2-4 | Fix duplicate socket guard (`socket != null`) — CONNECTING state bypasses current guard | `SocketManager.kt` | ✅ Yes | ✅ Done |
 | P2-2 | ~~Device Owner / DeviceAdminReceiver~~ | — | ❌ No | ❌ **Dropped** |
-| P2-5 | Add HOME-launcher intent-filter (`CATEGORY_HOME`) so "drop to home" = return to our app | `AndroidManifest.xml` | ✅ Yes (filter) | ⬜ Pending |
+| P2-5 | Add HOME-launcher intent-filter (`CATEGORY_HOME`) so "drop to home" = return to our app | `AndroidManifest.xml` | ✅ Yes (filter) | ✅ Done (filter; set as default Home per-device to activate) |
 
 **HOME-launcher caveat:** adding the intent-filter is harmless and ships via update, but becoming the
 *default* home needs a one-time "select Home app" tap per device — only helps boxes someone can reach
