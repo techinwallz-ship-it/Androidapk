@@ -132,7 +132,9 @@ AndroidApp.onAppReady()                   → Log.d only, no action
 
 **Manifest additions:** `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_SPECIAL_USE`, `POST_NOTIFICATIONS` permissions; `<service .SignageService>` (specialUse + justification property); `<receiver .WatchdogReceiver>`.
 
-**Verification:** `:app:assembleDebug` builds clean. **Not yet field-tested on hardware.**
+**Verification:** `:app:assembleDebug` builds clean. **Field-validated: ran 20+ hrs without
+crashing on a real box (2026-06-26), clearing the previous 3–16 hr crash-to-home window.**
+(Single box / single run — keep monitoring across more boxes.)
 
 **Known limits:** recovery is reliable, but guaranteed *background* relaunch of the UI on Android 12+
 needs Device Owner / lock task (see P2 #9–10). The memory leak itself is unaddressed until P1.

@@ -58,6 +58,7 @@ class MainActivity : ComponentActivity() {
     private var webViewReady = false
     @Volatile
     private var webViewDestroyed = false
+    private var nightlyRefreshScheduled = false
 
 
 
@@ -209,7 +210,9 @@ class MainActivity : ComponentActivity() {
                         allowFileAccess = true
                         allowContentAccess = true
                         mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                        cacheMode = WebSettings.LOAD_NO_CACHE
+                        // Local file:// SPA assets don't need cache-busting; LOAD_NO_CACHE just
+                        // forces re-parsing and adds memory churn. (AUDIT P1 #4)
+                        cacheMode = WebSettings.LOAD_DEFAULT
 
 
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
@@ -262,6 +265,11 @@ class MainActivity : ComponentActivity() {
                         override fun onPageFinished(view: WebView, url: String) {
 
                             webViewReady = true
+
+                            // Preventive memory reset: fully rebuild the WebView once a night so
+                            // accumulated renderer/native memory never reaches the kill threshold
+                            // during the day. (AUDIT P1 #5)
+                            scheduleNightlyRefresh()
 
                             // ✅ FIX: Online reboot media recovery (ONE TIME)
 
@@ -335,8 +343,10 @@ class MainActivity : ComponentActivity() {
             )
         }
 
-        // Trigger immediate sync at cold start if network available and pairing_code exists
-        triggerImmediateSyncIfOnline()
+        // NOTE: no explicit cold-start sync here. registerDefaultNetworkCallback() fires
+        // onAvailable() immediately when already online, and the one-time WorkManager job above
+        // also runs — calling triggerImmediateSyncIfOnline() here as well caused 2 concurrent
+        // syncs on every cold start. (AUDIT P1 #6)
     }
 
     override fun onDestroy() {
@@ -356,6 +366,35 @@ class MainActivity : ComponentActivity() {
             webView.destroy()
         }
         super.onDestroy()
+    }
+
+    /**
+     * Schedules a single WebView rebuild for the next 03:00 local time. recreate() tears down and
+     * recreates the WebView (new renderer process), which is the most thorough memory reset and
+     * reuses the same proven path as onRenderProcessGone(). Re-armed after each recreate via
+     * onPageFinished. Guarded so repeated page loads don't stack multiple timers.
+     */
+    private fun scheduleNightlyRefresh() {
+        if (nightlyRefreshScheduled) return
+        nightlyRefreshScheduled = true
+
+        val now = java.util.Calendar.getInstance()
+        val next = java.util.Calendar.getInstance().apply {
+            set(java.util.Calendar.HOUR_OF_DAY, 3)
+            set(java.util.Calendar.MINUTE, 0)
+            set(java.util.Calendar.SECOND, 0)
+            set(java.util.Calendar.MILLISECOND, 0)
+            if (!after(now)) add(java.util.Calendar.DAY_OF_MONTH, 1)
+        }
+        val delay = next.timeInMillis - now.timeInMillis
+
+        webView.postDelayed({
+            if (!isFinishing && !isDestroyed && !webViewDestroyed) {
+                Log.d("MEMRESET", "Nightly WebView refresh → recreate()")
+                recreate()
+            }
+        }, delay)
+        Log.d("MEMRESET", "Nightly refresh scheduled in ${delay / 60000} min")
     }
 
     private fun isOnline(): Boolean {

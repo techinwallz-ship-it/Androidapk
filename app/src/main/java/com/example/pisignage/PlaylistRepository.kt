@@ -3,6 +3,8 @@ package com.example.pisignage
 import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.Request
 import org.json.JSONArray
@@ -10,11 +12,17 @@ import org.json.JSONObject
 
 object PlaylistRepository {
 
+    // Serializes all sync paths (WorkManager + network callback + socket) so two syncs can never
+    // write .tmp files / run MediaCleaner concurrently — the race behind file-delete crashes and
+    // memory spikes. (AUDIT P1 #1)
+    private val mutex = Mutex()
+
     /**
      * Suspend: fetch playlist, download assets, rewrite asset.file_path to local URIs where available,
      * save final playlist to SharedPreferences and notify UI.
      */
     suspend fun fetchAndSave(context: Context, pairingCode: String) = withContext(Dispatchers.IO) {
+        mutex.withLock {
         try {
             val url = "https://api.inwallz.in/api/devices/$pairingCode/playlist"
             val request = Request.Builder().url(url).build()
@@ -80,6 +88,7 @@ object PlaylistRepository {
 
         } catch (e: Exception) {
             Log.e("PLAYLIST", "fetchAndSave failed", e)
+        }
         }
     }
 }
