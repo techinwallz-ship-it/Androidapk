@@ -137,7 +137,45 @@ crashing on a real box (2026-06-26), clearing the previous 3–16 hr crash-to-ho
 (Single box / single run — keep monitoring across more boxes.)
 
 **Known limits:** recovery is reliable, but guaranteed *background* relaunch of the UI on Android 12+
-needs Device Owner / lock task (see P2 #9–10). The memory leak itself is unaddressed until P1.
+would be strongest with Device Owner / lock task — see the P2 decision below. The memory leak itself
+is reduced (not eliminated) by P1.
+
+---
+
+## P1 — Memory Pressure Reducers (DONE in `next`)
+
+| # | Fix | File | Status |
+|---|---|---|---|
+| P1-1 | `Mutex` serializes all sync paths (no concurrent .tmp writes / MediaCleaner races) | `PlaylistRepository.kt` | ✅ Done |
+| P1-6 | Removed duplicate cold-start sync (network callback + WorkManager already cover it) | `MainActivity.kt` | ✅ Done |
+| P1-4 | `cacheMode` LOAD_NO_CACHE → LOAD_DEFAULT for local SPA assets | `MainActivity.kt` | ✅ Done |
+| P1-5 | Nightly 03:00 WebView `recreate()` — preventive memory reset | `MainActivity.kt` | ✅ Done |
+| P1-3 | base64 → file:// (lower 4 MB cap) | `AndroidMedia.kt` | ⏸️ **Deliberately left at 4 MB** — touches SPA media contract; risk of broken images on screen outweighs the (now non-critical) memory gain. Revisit only if `logcat \| grep WEBVIEW` shows frequent render-gone recoveries. |
+
+---
+
+## P2 — Kiosk Reliability (REVISED — Device Owner dropped)
+
+> **Decision (2026-06-26): Device Owner is NOT viable for this fleet.**
+> `adb shell dpm set-device-owner` only works on a factory-fresh device with no accounts and cannot
+> be set remotely or via an app update. The boxes are already deployed in the field, so per-device
+> ADB re-provisioning is impractical. **It is also not required** — the boxes survived 20+ hrs with
+> no Device Owner because P0's recovery already works without it. Device Owner would only have made
+> background relaunch *bulletproof*; the field test shows the existing ROMs are permissive enough.
+>
+> Therefore P2 is reduced to changes that ship as a **normal APK update** (no per-device touch):
+
+| # | Task | File | Ships via app update? | Status |
+|---|---|---|---|---|
+| P2-1 | Verify/log `startLockTask()` state (informational; lock task without Device Owner = best-effort screen pinning) | `MainActivity.kt` | ✅ Yes | ⬜ Pending |
+| P2-3 | `singleTask` launchMode on MainActivity (prevent instance stacking) | `AndroidManifest.xml` | ✅ Yes | ⬜ Pending |
+| P2-4 | Fix duplicate socket guard (`socket != null`) — CONNECTING state bypasses current guard | `SocketManager.kt` | ✅ Yes | ⬜ Pending |
+| P2-2 | ~~Device Owner / DeviceAdminReceiver~~ | — | ❌ No | ❌ **Dropped** |
+| P2-5 | Add HOME-launcher intent-filter (`CATEGORY_HOME`) so "drop to home" = return to our app | `AndroidManifest.xml` | ✅ Yes (filter) | ⬜ Pending |
+
+**HOME-launcher caveat:** adding the intent-filter is harmless and ships via update, but becoming the
+*default* home needs a one-time "select Home app" tap per device — only helps boxes someone can reach
+once (new deployments / RMA / on-site), not silently on existing remote boxes.
 
 ---
 
@@ -201,7 +239,7 @@ Add to `AndroidManifest.xml`:
 
 ---
 
-#### 3. `startLockTask()` Silently Fails — Kiosk Mode Never Active
+#### 3. `startLockTask()` Silently Fails — Kiosk Mode Never Active  ⚠️ SUPERSEDED — see "P2 — REVISED" above (Device Owner dropped; only the logging/fallback part survives as P2-1)
 **Problem:**
 `startLockTask()` requires the app to be whitelisted as **Device Owner** via `DevicePolicyManager`. On most assembled Android TV boxes this is not configured. The call throws silently (caught by try-catch) and kiosk mode is never active — any system event, OEM overlay, or accidental home press exits to home screen.
 
