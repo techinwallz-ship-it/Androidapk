@@ -179,6 +179,22 @@ once (new deployments / RMA / on-site), not silently on existing remote boxes.
 
 ---
 
+## P3 — Observability (DONE in `next`) + remaining cleanup
+
+| # | Task | File | Status |
+|---|---|---|---|
+| P3-5 | Global crash handler → Logcat (`CRASH`) + rolling `filesDir/crash.log` (survives restart, pull via `adb shell run-as ... cat files/crash.log`) | `CrashReporter.kt` (new), `SignageApp.kt` (new), manifest | ✅ Done |
+| P3-5 | 5-min memory telemetry → Logcat (`MEMSTAT`): heap / pss / sysAvail / low flag — `adb logcat -s MEMSTAT` | `MemoryMonitor.kt` (new), `SignageApp.kt` | ✅ Done |
+
+> **How to use it:** watch `pss` over hours. Steady climb = a leak the recovery is masking (revisit
+> P1-3 base64). `low=true` right before a restart = an OOM kill.
+
+**Remaining P3 (hygiene / security — not crash-related):** `WebContentsDebuggingEnabled` → `BuildConfig.DEBUG`;
+`AppConfig.kt` for hardcoded URLs/keys; delete `PlaylistStorage.kt` + `PlaylistBroadcaster.kt`; rename
+`AndriodApp.kt`; `allowBackup=false` + `exported=false`; R8 minification; hash-based sync (needs server `sha256`).
+
+---
+
 ## Open Issues — Needs Fixing (Priority Order)
 
 ### CRITICAL

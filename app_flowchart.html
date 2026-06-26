@@ -81,7 +81,7 @@
 <div class="page">
 
   <h1>PiSignage Android — Application Flowchart</h1>
-  <p class="subtitle">Quick reference · mem_leak branch · June 2026</p>
+  <p class="subtitle">Quick reference · next branch (P0+P1+P2 applied) · updated 2026-06-26</p>
 
   <!-- Legend -->
   <div class="legend">
@@ -110,7 +110,7 @@
         <div class="arrow">↓</div>
         <div class="node process" style="border-color:#22c55e">MainActivity.onCreate()</div>
         <div class="arrow">↓</div>
-        <div class="node warning">startLockTask() → Kiosk Mode<span class="badge warn">⚠ May silently fail</span></div>
+        <div class="node warning">startLockTask() → Kiosk Mode<span class="badge warn">Best-effort (no Device Owner) — state now logged</span></div>
       </div>
     </div>
 
@@ -130,7 +130,9 @@
         <div class="arrow">↓</div>
         <div class="node process">⏱ 500ms delay → loadUrl("file:///android_asset/index.html")</div>
         <div class="arrow">↓</div>
-        <div class="node warning">triggerImmediateSyncIfOnline()<span class="badge warn">⚠ Called twice on startup</span></div>
+        <div class="node process">Start SignageService + arm Watchdog<span class="badge new">Added</span></div>
+        <div class="arrow">↓</div>
+        <div class="node process">Cold-start sync via NetworkCallback only<span class="badge new">Fixed: no longer double-fired</span></div>
       </div>
     </div>
 
@@ -161,7 +163,7 @@
 
     <!-- FLOW 4: Three Sync Triggers -->
     <div class="flow-card">
-      <div class="flow-title orange">④ Sync Triggers <span class="badge warn">⚠ No Mutex — Run Concurrently</span></div>
+      <div class="flow-title orange">④ Sync Triggers <span class="badge new">Serialized via Mutex</span></div>
       <div class="chain">
         <div class="parallel">
           <div class="parallel-label">3 independent triggers</div>
@@ -170,13 +172,13 @@
           <div class="node socket">🔌 Socket "start-playlist" event</div>
         </div>
         <div class="arrow">↓</div>
-        <div class="node warning">PlaylistRepository.fetchAndSave()<br><small>All 3 paths call this simultaneously</small></div>
+        <div class="node process">PlaylistRepository.fetchAndSave()<br><small>mutex.withLock — only one sync runs at a time</small><span class="badge new">Fixed</span></div>
         <div class="arrow">↓</div>
         <div class="node io">GET api.inwallz.in/api/devices/{code}/playlist</div>
         <div class="arrow">↓</div>
         <div class="node process">MediaDownloader.syncMediaAndReturnMap()</div>
         <div class="arrow">↓</div>
-        <div class="node warning">MediaCleaner.cleanUnusedFiles()<span class="badge warn">⚠ Race condition</span></div>
+        <div class="node process">MediaCleaner.cleanUnusedFiles()<span class="badge new">Race gone (serialized)</span></div>
         <div class="arrow">↓</div>
         <div class="node storage">SharedPrefs.putString("last_playlist", json)</div>
         <div class="arrow">↓</div>
@@ -223,8 +225,8 @@
           </div>
         </div>
         <div class="arrow">↓</div>
-        <div class="node warning">MediaCleaner: delete files<br>NOT in current playlist<span class="badge warn">⚠ Race</span></div>
-        <div class="note">⚠ No hash check — re-downloads if file replaced with same size</div>
+        <div class="node process">MediaCleaner: delete files<br>NOT in current playlist<span class="badge new">Serialized</span></div>
+        <div class="note">No hash check — still re-downloads if file replaced with same size (P3, not crash-related)</div>
       </div>
     </div>
 
@@ -298,22 +300,26 @@
         <div class="arrow">↓</div>
         <div class="node js">webView.destroy()<span class="badge new">Fixed</span></div>
         <div class="arrow">↓</div>
-        <div class="node warning">❌ No Foreground Service<br><small>OS kill = no auto-restart until next reboot</small></div>
+        <div class="node process">SignageService (START_STICKY) + Watchdog alarm<br><small>OS kill → process/UI auto-restart, no reboot needed</small><span class="badge new">Added</span></div>
       </div>
     </div>
 
-    <!-- Known Issues Summary -->
+    <!-- Status Summary -->
     <div class="flow-card">
-      <div class="flow-title red">⚠ Open Issues (not yet fixed)</div>
-      <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px">
-        <div class="node warning">① Concurrent sync (no Mutex)<br><small>WorkManager + Network + Socket run simultaneously → MediaCleaner race</small></div>
-        <div class="node warning">② No Foreground Service<br><small>OS kills Activity → no restart → home screen</small></div>
-        <div class="node warning">③ startLockTask() silent fail<br><small>Kiosk may never be active on assembled boxes</small></div>
-        <div class="node warning">④ onPause() restart loop<br><small>Unreliable on TV boxes, no singleTask launchMode</small></div>
-        <div class="node warning">⑤ Duplicate socket on reconnect<br><small>CONNECTING state bypasses guard</small></div>
-        <div class="node warning">⑥ No hash-based sync<br><small>Re-downloads unchanged media files every cycle</small></div>
-        <div class="node warning">⑦ triggerImmediateSync called twice on startup</div>
-        <div class="node warning">⑧ WebDebugging enabled in production</div>
+      <div class="flow-title green">✓ Resolved (P0 + P1 + P2)</div>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-top:4px">
+        <div class="node process">onRenderProcessGone() → recover, don't die<br><small>P0 · root cause of crash-to-home — field-validated 20+ hrs</small></div>
+        <div class="node process">Foreground service (START_STICKY) + Watchdog<br><small>P0 · auto-restart after OS kill</small></div>
+        <div class="node process">Mutex on fetchAndSave() · no double cold-start sync<br><small>P1 · removes concurrent-sync memory spikes & races</small></div>
+        <div class="node process">LOAD_DEFAULT cache · nightly 03:00 WebView reset<br><small>P1 · caps memory growth</small></div>
+        <div class="node process">Socket guard (socket != null) · singleTask · HOME-launcher filter<br><small>P2 · kiosk reliability (app-update only)</small></div>
+        <div class="node process">Crash log + 5-min memory telemetry (CRASH / MEMSTAT)<br><small>P3 · see the next leak before customers do</small></div>
+      </div>
+      <div class="flow-title red" style="margin-top:14px">Remaining (non-crash)</div>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-top:4px">
+        <div class="node warning">base64 cap left at 4 MB (by choice) · hash-based sync (needs server)</div>
+        <div class="node warning">Device Owner dropped — not viable for deployed fleet; HOME-launcher needs 1-tap default set per box</div>
+        <div class="node warning">P3 hygiene: WebDebugging→DEBUG, AppConfig, dead-code, R8, allowBackup=false</div>
       </div>
     </div>
 
@@ -353,7 +359,7 @@
   </div>
 
   <div style="text-align:center;color:#334155;font-size:11px;margin-top:40px;padding-top:16px;border-top:1px solid #1e293b">
-    PiSignage Android · techinwallz-ship-it/Androidapk · mem_leak branch · June 2026
+    PiSignage Android · techinwallz-ship-it/Androidapk · next branch · updated 2026-06-26
   </div>
 
 </div>
