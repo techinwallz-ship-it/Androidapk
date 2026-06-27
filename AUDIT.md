@@ -203,7 +203,11 @@ once (new deployments / RMA / on-site), not silently on existing remote boxes.
 > Activities/WebViews stay at **1**, and `WEBVIEW: Render process gone` becomes rare (only on real
 > memory kills, recovered silently).
 > **✅ VERIFIED (2026-06-27):** after ~2.1 hrs running, `dumpsys` Objects shows **Activities: 1,
-> WebViews: 1, Views: 10** (was 150/150/1201). Leak + spiral confirmed gone.
+> WebViews: 1, Views: 10** (was 150/150/1201). Leak + spiral confirmed gone. `logcat` over 30 min
+> shows **zero `Render process gone`** (was every ~90s) — only the normal 15-min playlist syncs —
+> and the playlist **plays all assets** without restarting. Confirms the 150-WebView leak WAS the
+> memory pressure killing the renderer; removing it made the renderer stable. No native-player
+> rework needed for this hardware.
 
 > **⚠️ Video-lag root cause FOUND & FIXED (2026-06-26):** the lag was NOT memory size in the Java
 > heap (that stayed at ~6 MB) and NOT the telemetry/cache changes. `dumpsys meminfo` showed
