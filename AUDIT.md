@@ -202,6 +202,8 @@ once (new deployments / RMA / on-site), not silently on existing remote boxes.
 > off `webView.postDelayed` onto a removable `mainHandler` (cleared in `onDestroy`). Verify:
 > Activities/WebViews stay at **1**, and `WEBVIEW: Render process gone` becomes rare (only on real
 > memory kills, recovered silently).
+> **✅ VERIFIED (2026-06-27):** after ~2.1 hrs running, `dumpsys` Objects shows **Activities: 1,
+> WebViews: 1, Views: 10** (was 150/150/1201). Leak + spiral confirmed gone.
 
 > **⚠️ Video-lag root cause FOUND & FIXED (2026-06-26):** the lag was NOT memory size in the Java
 > heap (that stayed at ~6 MB) and NOT the telemetry/cache changes. `dumpsys meminfo` showed
