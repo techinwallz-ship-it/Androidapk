@@ -80,11 +80,11 @@ object PlaylistRepository {
                 .putString(AppConfig.KEY_PLAYLIST, finalJson)
                 .apply()
 
-            Log.d("PLAYLIST", "✅ Saved playlist (with local paths where available) to prefs")
+            Logx.d("PLAYLIST", "✅ Saved playlist (with local paths where available) to prefs")
 
             // Notify UI to inject playlist (MainActivity listens to this)
             PlaylistUpdateBus.send(context)
-            Log.d("PLAYLIST", "✅ Broadcasted playlist update")
+            Logx.d("PLAYLIST", "✅ Broadcasted playlist update")
 
         } catch (e: Exception) {
             Log.e("PLAYLIST", "fetchAndSave failed", e)

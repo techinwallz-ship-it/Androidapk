@@ -78,7 +78,7 @@ class MainActivity : ComponentActivity() {
     /** PLAYLIST RECEIVER — inject the new playlist into the running WebView (no reload) */
     private val playlistReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            Log.d("PLAYLIST", "🔥 Playlist changed → inject into WebView")
+            Logx.d("PLAYLIST", "🔥 Playlist changed → inject into WebView")
 
             val prefs = getSharedPreferences(AppConfig.PREFS_NAME, MODE_PRIVATE)
             val playlistJson = prefs.getString(AppConfig.KEY_PLAYLIST, null) ?: return
@@ -118,7 +118,7 @@ class MainActivity : ComponentActivity() {
 """.trimIndent()
 
                     webView.evaluateJavascript(js, null)
-                    Log.d("PLAYLIST", "✅ Injected playlist into WebView")
+                    Logx.d("PLAYLIST", "✅ Injected playlist into WebView")
                 } catch (e: Exception) {
                     Log.e("PLAYLIST", "Failed to inject playlist", e)
                 }
@@ -453,7 +453,7 @@ class MainActivity : ComponentActivity() {
         // Launch a background coroutine to fetch & save playlist
         lifecycleScope.launch(Dispatchers.IO) {
             try {
-                Log.d("PLAYLIST", "Immediate sync triggered (pairing:$pairingCode)")
+                Logx.d("PLAYLIST", "Immediate sync triggered (pairing:$pairingCode)")
                 PlaylistRepository.fetchAndSave(applicationContext, pairingCode)
             } catch (e: Exception) {
                 Log.e("PLAYLIST", "Immediate sync failed", e)

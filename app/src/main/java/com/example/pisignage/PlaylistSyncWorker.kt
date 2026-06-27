@@ -24,7 +24,7 @@ class PlaylistSyncWorker(
             // Use central repository which fetches, saves, downloads media and notifies UI
             PlaylistRepository.fetchAndSave(applicationContext, pairingCode)
 
-            Log.d("PLAYLIST", "✅ PlaylistSyncWorker completed")
+            Logx.d("PLAYLIST", "✅ PlaylistSyncWorker completed")
             return Result.success()
 
         } catch (e: Exception) {
