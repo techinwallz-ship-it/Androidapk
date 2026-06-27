@@ -243,7 +243,9 @@ risk for a fleet that can't be babysat. Release APK ~9.5 MB (vs 3.2 MB with R8).
 in `proguard-rules.pro` in case R8 is re-enabled later.
 
 **✅ PRODUCTION-READY (2026-06-27):** all crash/lag/leak/spiral fixes verified on hardware; release
-build = debug behavior (R8 off). User signs their own release for fleet deployment.
+build = debug behavior (R8 off); verbose per-sync PLAYLIST logs gated to debug only (`Logx`), field
+diagnostics (MEMSTAT/CRASH/WEBVIEW/KIOSK) kept on; `next` merged to `main` (in sync); clean
+`assembleRelease` (9.5 MB). User signs their own release for fleet deployment.
 
 **P3 hygiene — intentionally NOT done:**
 - `MainActivity exported=false` — **obsolete:** it now carries a HOME-launcher intent-filter, so it
