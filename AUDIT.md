@@ -189,6 +189,20 @@ once (new deployments / RMA / on-site), not silently on existing remote boxes.
 > **How to use it:** watch `avail`/`heap` over hours. Steady climb = a leak the recovery is masking
 > (revisit P1-3 base64). `low=true` right before a restart = an OOM kill.
 
+> **⚠️ Renderer-kill DEATH SPIRAL found & fixed (2026-06-27):** on a memory-tight box, `logcat`
+> showed the renderer being **system-killed every ~90s** (`didCrash=false`), and my
+> `onRenderProcessGone → recreate()` turned each kill into a full activity rebuild: it re-ran
+> `onCreate` (sync storm), **reloaded the SPA → playlist restarted from asset 1** (the "after 6
+> assets it refreshes" bug), and **leaked the activity+WebView** (`dumpsys` showed Activities/WebViews
+> climbing to **150**, via the `webView.postDelayed(recreate, ~19h)` nightly timer holding each
+> activity). The leak kept memory pegged → next renderer kill ~90s later → spiral.
+> **Fix:** recovery is now **in-place** — `onRenderProcessGone` and the nightly reset swap a fresh
+> WebView into a persistent `FrameLayout` container via `rebuildWebViewInPlace()` instead of
+> `recreate()`. No `onCreate` re-run, no sync storm, no playlist reset, no leak. Nightly reset moved
+> off `webView.postDelayed` onto a removable `mainHandler` (cleared in `onDestroy`). Verify:
+> Activities/WebViews stay at **1**, and `WEBVIEW: Render process gone` becomes rare (only on real
+> memory kills, recovered silently).
+
 > **⚠️ Video-lag root cause FOUND & FIXED (2026-06-26):** the lag was NOT memory size in the Java
 > heap (that stayed at ~6 MB) and NOT the telemetry/cache changes. `dumpsys meminfo` showed
 > **WebViews: 2, Activities: 2–3 (churning), ViewRootImpl 2→1**, and the single in-process app RSS

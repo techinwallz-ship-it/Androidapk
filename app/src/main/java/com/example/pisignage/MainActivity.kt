@@ -8,9 +8,12 @@ import android.net.NetworkRequest
 import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Base64
 import android.util.Log
 import android.view.ViewGroup
+import android.widget.FrameLayout
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebSettings
 import android.webkit.WebView
@@ -53,13 +56,13 @@ class MainActivity : ComponentActivity() {
     private var lastPressTime = 0L
     private var adminUnlocked = false
     private lateinit var webView: WebView
+    private var webContainer: FrameLayout? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var nightlyRunnable: Runnable? = null
     @Volatile
     private var wasOffline = false
     @Volatile
     private var webViewReady = false
-    @Volatile
-    private var webViewDestroyed = false
-    private var nightlyRefreshScheduled = false
 
 
 
@@ -196,151 +199,18 @@ class MainActivity : ComponentActivity() {
             AndroidView(
                 modifier = Modifier.fillMaxSize(),
                 factory = { context ->
-                    webView = WebView(context)
-
-                    webView.layoutParams = ViewGroup.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.MATCH_PARENT
-                    )
-
-                    webView.settings.apply {
-                        javaScriptEnabled = true
-                        domStorageEnabled = true
-                        databaseEnabled = true
-                        mediaPlaybackRequiresUserGesture = false
-                        allowFileAccess = true
-                        allowContentAccess = true
-                        mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                        // Reverted to LOAD_NO_CACHE: LOAD_DEFAULT let the WebView retain remote
-                        // resources in cache/memory, adding to the growth that contributed to
-                        // video lag over time. (AUDIT P1 #4 — reverted)
-                        cacheMode = WebSettings.LOAD_NO_CACHE
-
-
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
-                            allowFileAccessFromFileURLs = true
-                            allowUniversalAccessFromFileURLs = true
-                        }
+                    // A stable container we own. The WebView lives INSIDE it so we can swap in a
+                    // fresh WebView on a renderer kill without recreate()-ing the whole activity.
+                    val container = FrameLayout(context).apply {
+                        layoutParams = ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT
+                        )
                     }
-
-                    WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
-
-                    // Register JS bridges expected by the web UI
-                    webView.addJavascriptInterface(AndroidMedia(context), "AndroidMedia")
-                    webView.addJavascriptInterface(AndroidBridge(context), "AndroidBridge")
-                    webView.addJavascriptInterface(AndroidApp(context), "AndroidApp")
-
-                    webView.webViewClient = object : WebViewClient() {
-
-                        /**
-                         * The WebView renderer runs in a separate, sandboxed process. When that
-                         * process is killed (OOM on a budget box after hours of looping media),
-                         * Android terminates the WHOLE app unless we handle it here and return true.
-                         * That unhandled kill is the main cause of the "crash → home screen" symptom.
-                         *
-                         * We detach + destroy the dead WebView and recreate the activity, which
-                         * rebuilds a fresh WebView and reloads the playlist — recovering in ~1s
-                         * instead of dropping to the launcher.
-                         */
-                        override fun onRenderProcessGone(
-                            view: WebView,
-                            detail: RenderProcessGoneDetail?
-                        ): Boolean {
-                            val crashed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-                                detail?.didCrash() else null
-                            Log.e("WEBVIEW", "Render process gone (didCrash=$crashed) → recovering")
-
-                            try {
-                                (view.parent as? ViewGroup)?.removeView(view)
-                                view.destroy()
-                                webViewDestroyed = true
-                            } catch (e: Exception) {
-                                Log.w("WEBVIEW", "Cleanup of dead WebView failed", e)
-                            }
-
-                            if (!isFinishing && !isDestroyed) {
-                                recreate() // rebuilds a fresh WebView via setContent factory
-                            }
-                            return true // handled — do NOT let the OS kill the app process
-                        }
-
-                        override fun onPageFinished(view: WebView, url: String) {
-
-                            webViewReady = true
-
-                            // Preventive memory reset: fully rebuild the WebView once a night so
-                            // accumulated renderer/native memory never reaches the kill threshold
-                            // during the day. (AUDIT P1 #5)
-                            scheduleNightlyRefresh()
-
-                            // ✅ FIX: Online reboot media recovery (ONE TIME)
-
-                            // 🔁 CRITICAL: fix white screen after reboot
-                            val prefs = getSharedPreferences(AppConfig.PREFS_NAME, MODE_PRIVATE)
-                            prefs.getString(AppConfig.KEY_PLAYLIST, null)?.let { lastPlaylist ->
-                                try {
-                                    val base64 = Base64.encodeToString(lastPlaylist.toByteArray(), Base64.NO_WRAP)
-                                    val pairingCode = prefs.getString(AppConfig.KEY_PAIRING, null)
-                                    val pairingBase64 = pairingCode?.let { Base64.encodeToString(it.toByteArray(), Base64.NO_WRAP) } ?: ""
-                                    val js = """
-                                    (function() {
-                                      try {
-                                        var data = JSON.parse(atob("$base64"));
-                                        localStorage.setItem('lastPlaylist', JSON.stringify(data));
-                                        window.__PLAYLIST__ = data;
-                                        window.dispatchEvent(new Event('playlist-updated'));
-                                        try {
-                                          if ("$pairingBase64".length > 0) {
-                                            localStorage.setItem('pairingCode', atob("$pairingBase64"));
-                                          }
-                                        } catch(e) {}
-                                        
-                                        
-                                      } catch(e) {
-                                        console.error('playlist inject failed', e);
-                                      }
-                                      
-                                      (function () {
-                                        try {
-                                          var paired = localStorage.getItem("pairingCode");
-                                          if (paired && paired.length > 0) {
-                                            if (window.location.hash !== "#/display") {
-                                              window.location.hash = "#/display";
-                                            }
-                                          }
-                                        } catch (e) {}
-                                      })();
-                                      
-                                      })();
-
-                                  
-                                    """.trimIndent()
-                                    view.evaluateJavascript(js, null)
-                                } catch (e: Exception) {
-                                    Log.e("PLAYLIST", "inject failed", e)
-                                }
-                            }
-
-                            // Start socket if pairing code present (socket handles real-time updates)
-                            prefs.getString(AppConfig.KEY_PAIRING, null)?.let {
-                                SocketManager.connect(applicationContext, it)
-                            }
-                        }
-                    }
-
-                    // Always use packaged SPA for reliable offline startup.
-                    // Toggle useRemoteDevServer ONLY during frontend development.
-                    if (useRemoteDevServer && isOnline()) {
-                        val bust = System.currentTimeMillis()
-                        webView.loadUrl("https://tv.inwallz.in/?init=$bust")
-                    } else {
-                        webView.postDelayed({
-                            webView.loadUrl("file:///android_asset/index.html")
-                        }, 500)
-
-                    }
-
-                    webView
+                    webContainer = container
+                    webView = buildWebView(context)
+                    container.addView(webView)
+                    container
                 }
             )
         }
@@ -351,7 +221,146 @@ class MainActivity : ComponentActivity() {
         // syncs on every cold start. (AUDIT P1 #6)
     }
 
+    /** Creates and fully configures a fresh WebView (settings, JS bridges, client, initial load). */
+    private fun buildWebView(context: Context): WebView {
+        val wv = WebView(context)
+        wv.layoutParams = ViewGroup.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT
+        )
+
+        wv.settings.apply {
+            javaScriptEnabled = true
+            domStorageEnabled = true
+            databaseEnabled = true
+            mediaPlaybackRequiresUserGesture = false
+            allowFileAccess = true
+            allowContentAccess = true
+            mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+            cacheMode = WebSettings.LOAD_NO_CACHE
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
+                allowFileAccessFromFileURLs = true
+                allowUniversalAccessFromFileURLs = true
+            }
+        }
+
+        WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG)
+
+        wv.addJavascriptInterface(AndroidMedia(context), "AndroidMedia")
+        wv.addJavascriptInterface(AndroidBridge(context), "AndroidBridge")
+        wv.addJavascriptInterface(AndroidApp(context), "AndroidApp")
+
+        wv.webViewClient = object : WebViewClient() {
+
+            /**
+             * The WebView renderer runs in a separate process. When the system kills it (common on
+             * memory-tight boxes) we MUST handle this and return true, or Android terminates the
+             * whole app (the original "crash → home screen").
+             *
+             * Recovery is IN-PLACE: swap a fresh WebView into our container — NOT recreate(). The
+             * old recreate() re-ran onCreate (sync storm), reloaded/reset the playlist, and leaked
+             * the activity+WebView, which spiralled into a renderer-kill loop every ~90s.
+             */
+            override fun onRenderProcessGone(
+                view: WebView,
+                detail: RenderProcessGoneDetail?
+            ): Boolean {
+                val crashed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                    detail?.didCrash() else null
+                Log.e("WEBVIEW", "Render process gone (didCrash=$crashed) → rebuilding WebView in place")
+                // Detach the dead view now; do the swap on the next loop tick (safer than inside
+                // this callback). rebuildWebViewInPlace() destroys this dead view.
+                try { (view.parent as? ViewGroup)?.removeView(view) } catch (e: Exception) {}
+                mainHandler.post { if (!isFinishing && !isDestroyed) rebuildWebViewInPlace() }
+                return true // handled — do NOT let the OS kill the app process
+            }
+
+            override fun onPageFinished(view: WebView, url: String) {
+                webViewReady = true
+
+                // Preventive memory reset once a night (in-place rebuild, see scheduleNightlyRefresh).
+                scheduleNightlyRefresh()
+
+                // Re-inject the last playlist so the SPA shows content immediately (offline-first).
+                val prefs = getSharedPreferences(AppConfig.PREFS_NAME, MODE_PRIVATE)
+                prefs.getString(AppConfig.KEY_PLAYLIST, null)?.let { lastPlaylist ->
+                    try {
+                        val base64 = Base64.encodeToString(lastPlaylist.toByteArray(), Base64.NO_WRAP)
+                        val pairingCode = prefs.getString(AppConfig.KEY_PAIRING, null)
+                        val pairingBase64 = pairingCode?.let { Base64.encodeToString(it.toByteArray(), Base64.NO_WRAP) } ?: ""
+                        val js = """
+                        (function() {
+                          try {
+                            var data = JSON.parse(atob("$base64"));
+                            localStorage.setItem('lastPlaylist', JSON.stringify(data));
+                            window.__PLAYLIST__ = data;
+                            window.dispatchEvent(new Event('playlist-updated'));
+                            try {
+                              if ("$pairingBase64".length > 0) {
+                                localStorage.setItem('pairingCode', atob("$pairingBase64"));
+                              }
+                            } catch(e) {}
+                          } catch(e) {
+                            console.error('playlist inject failed', e);
+                          }
+                          (function () {
+                            try {
+                              var paired = localStorage.getItem("pairingCode");
+                              if (paired && paired.length > 0) {
+                                if (window.location.hash !== "#/display") {
+                                  window.location.hash = "#/display";
+                                }
+                              }
+                            } catch (e) {}
+                          })();
+                        })();
+                        """.trimIndent()
+                        view.evaluateJavascript(js, null)
+                    } catch (e: Exception) {
+                        Log.e("PLAYLIST", "inject failed", e)
+                    }
+                }
+
+                // Start socket if pairing code present (socket handles real-time updates)
+                prefs.getString(AppConfig.KEY_PAIRING, null)?.let {
+                    SocketManager.connect(applicationContext, it)
+                }
+            }
+        }
+
+        // Always use packaged SPA for reliable offline startup.
+        if (useRemoteDevServer && isOnline()) {
+            val bust = System.currentTimeMillis()
+            wv.loadUrl("https://tv.inwallz.in/?init=$bust")
+        } else {
+            wv.postDelayed({ wv.loadUrl("file:///android_asset/index.html") }, 500)
+        }
+        return wv
+    }
+
+    /**
+     * Recovers from a renderer kill (or nightly reset) WITHOUT recreate(): swap a fresh WebView
+     * into the same container. No onCreate re-run, no sync storm, no activity/WebView leak.
+     */
+    private fun rebuildWebViewInPlace() {
+        val container = webContainer ?: return
+        try {
+            if (::webView.isInitialized) {
+                val old = webView
+                (old.parent as? ViewGroup)?.removeView(old)
+                try { old.destroy() } catch (e: Exception) {}
+            }
+        } catch (e: Exception) {
+            Log.w("WEBVIEW", "old WebView cleanup failed", e)
+        }
+        container.removeAllViews()
+        webView = buildWebView(this)
+        container.addView(webView)
+        Log.d("WEBVIEW", "WebView rebuilt in place")
+    }
+
     override fun onDestroy() {
+        nightlyRunnable?.let { mainHandler.removeCallbacks(it) }
         try { unregisterReceiver(playlistReceiver) } catch (e: Exception) {}
         try {
             networkCallback?.let {
@@ -364,22 +373,36 @@ class MainActivity : ComponentActivity() {
             }
         } catch (e: Exception) {}
         SocketManager.disconnect()
-        if (::webView.isInitialized && !webViewDestroyed) {
-            webView.destroy()
+        if (::webView.isInitialized) {
+            try { webView.destroy() } catch (e: Exception) {}
         }
         super.onDestroy()
     }
 
     /**
-     * Schedules a single WebView rebuild for the next 03:00 local time. recreate() tears down and
-     * recreates the WebView (new renderer process), which is the most thorough memory reset and
-     * reuses the same proven path as onRenderProcessGone(). Re-armed after each recreate via
-     * onPageFinished. Guarded so repeated page loads don't stack multiple timers.
+     * Schedules a preventive in-place WebView rebuild for the next 03:00 local time, repeating
+     * daily. Uses a removable handler (cleared in onDestroy) — NOT webView.postDelayed, whose
+     * pending message used to hold the whole activity for ~19h and leaked one per recreate().
+     * Guarded so repeated page loads don't stack timers.
      */
     private fun scheduleNightlyRefresh() {
-        if (nightlyRefreshScheduled) return
-        nightlyRefreshScheduled = true
+        if (nightlyRunnable != null) return
+        val r = object : Runnable {
+            override fun run() {
+                if (!isFinishing && !isDestroyed) {
+                    Log.d("MEMRESET", "Nightly WebView refresh → in-place rebuild")
+                    rebuildWebViewInPlace()
+                }
+                mainHandler.postDelayed(this, 24L * 60 * 60 * 1000) // next day
+            }
+        }
+        nightlyRunnable = r
+        val delay = millisUntilNext3am()
+        mainHandler.postDelayed(r, delay)
+        Log.d("MEMRESET", "Nightly refresh scheduled in ${delay / 60000} min")
+    }
 
+    private fun millisUntilNext3am(): Long {
         val now = java.util.Calendar.getInstance()
         val next = java.util.Calendar.getInstance().apply {
             set(java.util.Calendar.HOUR_OF_DAY, 3)
@@ -388,15 +411,7 @@ class MainActivity : ComponentActivity() {
             set(java.util.Calendar.MILLISECOND, 0)
             if (!after(now)) add(java.util.Calendar.DAY_OF_MONTH, 1)
         }
-        val delay = next.timeInMillis - now.timeInMillis
-
-        webView.postDelayed({
-            if (!isFinishing && !isDestroyed && !webViewDestroyed) {
-                Log.d("MEMRESET", "Nightly WebView refresh → recreate()")
-                recreate()
-            }
-        }, delay)
-        Log.d("MEMRESET", "Nightly refresh scheduled in ${delay / 60000} min")
+        return next.timeInMillis - now.timeInMillis
     }
 
     private fun isOnline(): Boolean {
