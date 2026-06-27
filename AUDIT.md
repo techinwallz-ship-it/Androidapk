@@ -233,8 +233,17 @@ once (new deployments / RMA / on-site), not silently on existing remote boxes.
 
 **P3 hygiene — DONE in `next`:** `WebContentsDebuggingEnabled` → `BuildConfig.DEBUG`; `AppConfig.kt`
 created + URLs/keys refactored; deleted `PlaylistStorage.kt` + `PlaylistBroadcaster.kt`; renamed
-`AndriodApp.kt` → `AndroidApp.kt`; `allowBackup=false`; **R8 minification enabled** with keep rules for
-`@JavascriptInterface` / Socket.IO / OkHttp (release builds clean).
+`AndriodApp.kt` → `AndroidApp.kt`; `allowBackup=false`.
+
+**R8: enabled then DELIBERATELY DISABLED (2026-06-27).** Was turned on with keep rules
+(`@JavascriptInterface` / Socket.IO / OkHttp), but **`isMinifyEnabled = false`** for production:
+sideloaded signage boxes gain nothing from shrink/obfuscation, and disabling it makes the release
+build behave **exactly like the field-tested debug build** — removing all release-only reflection
+risk for a fleet that can't be babysat. Release APK ~9.5 MB (vs 3.2 MB with R8). Keep-rules retained
+in `proguard-rules.pro` in case R8 is re-enabled later.
+
+**✅ PRODUCTION-READY (2026-06-27):** all crash/lag/leak/spiral fixes verified on hardware; release
+build = debug behavior (R8 off). User signs their own release for fleet deployment.
 
 **P3 hygiene — intentionally NOT done:**
 - `MainActivity exported=false` — **obsolete:** it now carries a HOME-launcher intent-filter, so it

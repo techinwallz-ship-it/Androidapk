@@ -18,11 +18,11 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = true
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
+            // R8 disabled: dedicated sideloaded signage boxes gain nothing from shrinking/
+            // obfuscation, and turning it off makes the release build behave exactly like the
+            // thoroughly field-tested debug build (no release-only reflection breakage risk).
+            // Keep-rules remain in proguard-rules.pro in case R8 is ever re-enabled.
+            isMinifyEnabled = false
         }
     }
 
