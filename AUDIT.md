@@ -189,6 +189,21 @@ once (new deployments / RMA / on-site), not silently on existing remote boxes.
 > **How to use it:** watch `avail`/`heap` over hours. Steady climb = a leak the recovery is masking
 > (revisit P1-3 base64). `low=true` right before a restart = an OOM kill.
 
+> **⚠️ White-screen on one box — root cause + cascade fix (2026-06-28):** field logs from two boxes
+> showed the renderer being GPU-killed ~every 90s on BOTH (`image_reader_gl_owner: no buffers
+> currently available in the reader queue` → renderer crash, `didCrash=false`) — a GPU buffer
+> exhaustion limit of WebView video on weak TV-box GPUs, NOT the (already-fixed) leak. The healthy
+> box recovered cleanly each time; the white box hit a **rapid crash burst** (6 kills in ~5s) that
+> made the instant in-place rebuild loop run away and **wedge the WebView blank** (renderer process
+> bloated to 120 MB vs 68 MB healthy; subsequent injects threw `DOMException`).
+> **Fix (layer 1 — cascade-proof recovery):** `scheduleRecovery()` adds backoff — a normal single
+> kill still rebuilds **instantly (0 delay)**, but rapid kills get increasing backoff and after
+> `escalateAfter` rapid kills it escalates to a full `recreate()` (after a settle delay) to clear
+> the wedged GPU surface instead of looping. No box can get stuck white; normal playback is
+> unaffected.
+> **Still open (layer 2 — the real cure):** the ~90s GPU kill itself. Lower media resolution/bitrate
+> (no-code), ensure the SPA decodes one video at a time, or move video to a native player (ExoPlayer).
+
 > **⚠️ Renderer-kill DEATH SPIRAL found & fixed (2026-06-27):** on a memory-tight box, `logcat`
 > showed the renderer being **system-killed every ~90s** (`didCrash=false`), and my
 > `onRenderProcessGone → recreate()` turned each kill into a full activity rebuild: it re-ran

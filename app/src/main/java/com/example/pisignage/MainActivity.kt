@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Base64
 import android.util.Log
 import android.view.ViewGroup
@@ -59,6 +60,19 @@ class MainActivity : ComponentActivity() {
     private var webContainer: FrameLayout? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private var nightlyRunnable: Runnable? = null
+
+    // Renderer-recovery backoff state. A single renderer kill (~every 90s on weak GPUs) recovers
+    // INSTANTLY (no delay). Only a rapid burst of kills — which is what wedges the WebView white —
+    // triggers backoff, and after a few rapid kills we escalate to a full recreate() to clear the
+    // GPU surface instead of looping. Normal playback is never affected.
+    private var lastRenderGoneAt = 0L
+    private var rapidCrashCount = 0
+    private var recoveryRunnable: Runnable? = null
+    private val rapidWindowMs = 10_000L   // kills closer than this = a cascade
+    private val backoffStepMs = 1_500L    // added wait per consecutive rapid kill
+    private val backoffMaxMs = 8_000L
+    private val escalateAfter = 4         // rapid kills before a full recreate()
+    private val escalateSettleMs = 8_000L // let the GPU settle before the heavy reset
     @Volatile
     private var wasOffline = false
     @Volatile
@@ -267,11 +281,11 @@ class MainActivity : ComponentActivity() {
             ): Boolean {
                 val crashed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
                     detail?.didCrash() else null
-                Log.e("WEBVIEW", "Render process gone (didCrash=$crashed) → rebuilding WebView in place")
-                // Detach the dead view now; do the swap on the next loop tick (safer than inside
-                // this callback). rebuildWebViewInPlace() destroys this dead view.
+                Log.e("WEBVIEW", "Render process gone (didCrash=$crashed) → scheduling recovery")
+                // Detach the dead view now so it isn't shown; the actual rebuild is scheduled with
+                // backoff (instant for a normal single kill, throttled for a crash burst).
                 try { (view.parent as? ViewGroup)?.removeView(view) } catch (e: Exception) {}
-                mainHandler.post { if (!isFinishing && !isDestroyed) rebuildWebViewInPlace() }
+                scheduleRecovery()
                 return true // handled — do NOT let the OS kill the app process
             }
 
@@ -339,6 +353,46 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
+     * Decides HOW to recover from a renderer kill, with backoff so a crash burst can't wedge the
+     * WebView white:
+     *  - normal single kill (spaced > rapidWindowMs)  → rebuild immediately (0 delay)
+     *  - a few rapid kills (a cascade)                → short, increasing backoff before rebuild
+     *  - too many rapid kills                         → escalate to a full recreate() after a
+     *                                                   settle delay, to clear the wedged GPU surface
+     */
+    private fun scheduleRecovery() {
+        val now = SystemClock.elapsedRealtime()
+        val sinceLast = now - lastRenderGoneAt
+        lastRenderGoneAt = now
+        rapidCrashCount = if (sinceLast < rapidWindowMs) rapidCrashCount + 1 else 0
+
+        // Replace any pending recovery with a fresh decision based on the current burst state.
+        recoveryRunnable?.let { mainHandler.removeCallbacks(it) }
+
+        val escalate = rapidCrashCount >= escalateAfter
+        val delay = when {
+            rapidCrashCount == 0 -> 0L                                       // normal: instant
+            escalate -> escalateSettleMs
+            else -> (rapidCrashCount * backoffStepMs).coerceAtMost(backoffMaxMs)
+        }
+
+        val r = Runnable {
+            recoveryRunnable = null
+            if (isFinishing || isDestroyed) return@Runnable
+            if (escalate) {
+                Log.w("WEBVIEW", "Rapid renderer kills ($rapidCrashCount) → full recreate() to clear GPU")
+                rapidCrashCount = 0
+                recreate()
+            } else {
+                rebuildWebViewInPlace()
+            }
+        }
+        recoveryRunnable = r
+        mainHandler.postDelayed(r, delay)
+        Log.d("WEBVIEW", "Recovery in ${delay}ms (rapid=$rapidCrashCount, escalate=$escalate)")
+    }
+
+    /**
      * Recovers from a renderer kill (or nightly reset) WITHOUT recreate(): swap a fresh WebView
      * into the same container. No onCreate re-run, no sync storm, no activity/WebView leak.
      */
@@ -361,6 +415,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         nightlyRunnable?.let { mainHandler.removeCallbacks(it) }
+        recoveryRunnable?.let { mainHandler.removeCallbacks(it) }
         try { unregisterReceiver(playlistReceiver) } catch (e: Exception) {}
         try {
             networkCallback?.let {
