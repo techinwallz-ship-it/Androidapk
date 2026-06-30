@@ -295,11 +295,23 @@ native ExoPlayer, the way commercial signage does.
 **Contract:** JS→Android `AndroidVideo.play(src)/prepare(src)/stop()`; Android→JS
 `window.__onNativeVideoEnded()/__onNativeVideoError()`. `src` is a `file://` URI.
 
-**Status:** Android side built clean (`assembleDebug`). **Pending:** user ports the `code.txt`
-display-side edits into the live SPA, then field-test the 5-video playlist.
-**Known v1 limitation:** native video is full-screen, so it **covers the ticker** during videos —
-preserving the ticker over video needs the SPA to pass the ticker height so the surface can be sized
-below it (follow-up).
+**Status:** Android side built clean (`assembleDebug`). SPA edits ported into the live bundle by the
+user. Field-testing in progress (1 video + 1 photo, to isolate).
+
+**Surface bug fixed during bring-up (2026-06-30):** native video first showed **black** (audio/clip
+ran — `play` → `native clip ended` — but `onRenderedFirstFrame` never fired = ExoPlayer had no
+surface). Root rule: **a `TextureView` only creates its `SurfaceTexture` when the view is actually
+*drawn*; `GONE`/`INVISIBLE` views are not drawn → no surface → black.** Fix: keep the `TextureView`
+`VISIBLE` and toggle **`alpha`** (0 = transparent-but-drawn so the surface stays alive and the WebView
+shows through for images; 1 = revealed on first frame). Watch `VIDEO: first frame rendered` to confirm.
+
+**Open follow-ups:**
+- During the 5-video test only `cnc_vid10.mp4` played repeatedly — verify the SPA advances through all
+  videos (playlist/index issue, not the player).
+- Ticker: native video is full-screen, so it **covers the ticker** during videos — sizing the surface
+  below the ticker needs the SPA to pass the ticker height (follow-up).
+- If a box still shows black *with* `first frame rendered` logged → z-order (WebView on top); force the
+  layering.
 
 ---
 
