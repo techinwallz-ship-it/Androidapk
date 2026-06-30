@@ -203,6 +203,14 @@ once (new deployments / RMA / on-site), not silently on existing remote boxes.
 > unaffected.
 > **Still open (layer 2 — the real cure):** the ~90s GPU kill itself. Lower media resolution/bitrate
 > (no-code), ensure the SPA decodes one video at a time, or move video to a native player (ExoPlayer).
+>
+> **CONFIRMED by field test (2026-06-29):** a playlist of **10 images plays flawlessly for 48+ hrs**;
+> a playlist of **5 videos white-screens within hours** (renderer dies after ~2 videos ≈ ~90s, reloads
+> from the start, never finishes the playlist). This isolates the cause to **video decode/GPU buffer
+> exhaustion** specifically — images never touch the video-frame (ImageReader/SurfaceTexture) pipeline,
+> videos hammer it. Layer-1 keeps it recovering (no permanent white) but the per-~90s reload persists
+> until layer-2. Fix priority: (1) re-encode videos to lower res/bitrate, (2) one `<video>` decoded at
+> a time / proper disposal in the SPA, (3) native ExoPlayer overlay for video.
 
 > **⚠️ Renderer-kill DEATH SPIRAL found & fixed (2026-06-27):** on a memory-tight box, `logcat`
 > showed the renderer being **system-killed every ~90s** (`didCrash=false`), and my
