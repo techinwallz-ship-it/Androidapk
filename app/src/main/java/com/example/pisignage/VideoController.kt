@@ -42,10 +42,12 @@ class VideoController(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
             )
-            // INVISIBLE (not GONE): a GONE view is never laid out, so its SurfaceTexture is never
-            // created and ExoPlayer has nothing to render into → black video. INVISIBLE keeps the
-            // surface alive (video renders) but isn't drawn, so the WebView shows through for images.
-            visibility = View.INVISIBLE
+            // Keep it VISIBLE but transparent (alpha 0) when idle. GONE/INVISIBLE prevent the
+            // TextureView's SurfaceTexture from being created/updated, so ExoPlayer renders nothing
+            // → black video. A VISIBLE TextureView at alpha 0 stays drawn (surface alive, video
+            // renders, onRenderedFirstFrame fires) yet is fully transparent so the WebView shows
+            // through for images. We flip alpha to 1 on the first rendered frame.
+            alpha = 0f
         }
         // Added last → sits on TOP of the WebView in the FrameLayout.
         container.addView(tv)
@@ -68,8 +70,8 @@ class VideoController(
             override fun onRenderedFirstFrame() {
                 // Reveal only when the first frame is ready → no black gap on image→video handoff.
                 Log.d("VIDEO", "first frame rendered → showing video")
-                tv.visibility = View.VISIBLE
                 tv.bringToFront() // ensure it sits above the WebView
+                tv.alpha = 1f
             }
         })
         player = p
@@ -124,9 +126,9 @@ class VideoController(
             }
         }
         preparedUri = null
-        // INVISIBLE (not GONE) so the surface stays alive for the next video; the WebView shows
-        // through for the current image.
-        textureView?.visibility = View.INVISIBLE
+        // Transparent (not GONE/INVISIBLE) so the surface stays alive for the next video; the
+        // WebView shows through for the current image.
+        textureView?.alpha = 0f
     }
 
     /** Release everything (call from onDestroy). */
