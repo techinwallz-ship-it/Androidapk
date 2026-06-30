@@ -42,7 +42,10 @@ class VideoController(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
             )
-            visibility = View.GONE
+            // INVISIBLE (not GONE): a GONE view is never laid out, so its SurfaceTexture is never
+            // created and ExoPlayer has nothing to render into → black video. INVISIBLE keeps the
+            // surface alive (video renders) but isn't drawn, so the WebView shows through for images.
+            visibility = View.INVISIBLE
         }
         // Added last → sits on TOP of the WebView in the FrameLayout.
         container.addView(tv)
@@ -64,7 +67,9 @@ class VideoController(
 
             override fun onRenderedFirstFrame() {
                 // Reveal only when the first frame is ready → no black gap on image→video handoff.
+                Log.d("VIDEO", "first frame rendered → showing video")
                 tv.visibility = View.VISIBLE
+                tv.bringToFront() // ensure it sits above the WebView
             }
         })
         player = p
@@ -119,7 +124,9 @@ class VideoController(
             }
         }
         preparedUri = null
-        textureView?.visibility = View.GONE
+        // INVISIBLE (not GONE) so the surface stays alive for the next video; the WebView shows
+        // through for the current image.
+        textureView?.visibility = View.INVISIBLE
     }
 
     /** Release everything (call from onDestroy). */
