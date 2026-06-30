@@ -277,6 +277,32 @@ diagnostics (MEMSTAT/CRASH/WEBVIEW/KIOSK) kept on; `next` merged to `main` (in s
 
 ---
 
+## Native Video Player (ExoPlayer) — the real cure for the video white-screen (in `next`)
+
+The video white-screen root cause is GPU buffer-queue exhaustion from **WebView** video on weak boxes
+(confirmed: 10 images = 48+ hrs flawless; 5 videos = white-screen in hours). Re-encoding to lower
+res was rejected (content quality must stay full). Fix = play video **outside the WebView** via
+native ExoPlayer, the way commercial signage does.
+
+| Piece | File | Role |
+|---|---|---|
+| `VideoController.kt` (new) | ExoPlayer on a `TextureView` layered over the WebView; shows only while a video plays (revealed on first frame), `play/prepare/stop`, end/error callbacks | native playback, no GPU leak |
+| `AndroidVideo.kt` (new) | JS bridge (`play/prepare/stop`, marshalled to UI thread) | SPA → native |
+| `MainActivity.kt` | creates the controller in the WebView container, registers `AndroidVideo`, keeps the video overlay across WebView rebuilds, releases on destroy, `notifyJs()` for native→SPA callbacks | wiring |
+| `build.gradle.kts` | `androidx.media3:media3-exoplayer:1.4.1` | dependency |
+| `code.txt` (SPA ref) | DisplayPage.jsx edits: route video to `AndroidVideo.play`, `__onNativeVideoEnded`/`__onNativeVideoError` callbacks, pre-prepare next, stop on non-video, dropped `freezeLastVideoFrame` | display side |
+
+**Contract:** JS→Android `AndroidVideo.play(src)/prepare(src)/stop()`; Android→JS
+`window.__onNativeVideoEnded()/__onNativeVideoError()`. `src` is a `file://` URI.
+
+**Status:** Android side built clean (`assembleDebug`). **Pending:** user ports the `code.txt`
+display-side edits into the live SPA, then field-test the 5-video playlist.
+**Known v1 limitation:** native video is full-screen, so it **covers the ticker** during videos —
+preserving the ticker over video needs the SPA to pass the ticker height so the surface can be sized
+below it (follow-up).
+
+---
+
 ## Open Issues — Needs Fixing (Priority Order)
 
 ### CRITICAL

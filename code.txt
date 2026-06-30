@@ -1,0 +1,870 @@
+import { useEffect, useRef, useState } from "react";
+import "../styles/displayTicker.css";
+
+
+import socket from "../services/socket";
+function DisplayPage() {
+  const [playlist, setPlaylist] = useState([]);
+
+ 
+  const [tickerConfig, setTickerConfig] = useState(null);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  //const [playVersion, setPlayVersion] = useState(0);
+  const [playCount, setPlayCount] = useState(0);
+  const imageRef = useRef(null);
+
+
+  const [revision, setRevision] = useState(Date.now());
+  const [loadError, setLoadError] = useState(false);
+  // INSERT (near other useState declarations)
+const [resolveTrigger, setResolveTrigger] = useState(0);
+  // add these after: const timerRef = useRef(null);
+const videoRef = useRef(null);
+const audioRef = useRef(null);
+const [mediaReady, setMediaReady] = useState(false); // used to show only when ready
+  const timerRef = useRef(null);
+
+const freezeLastVideoFrame = () => {
+  const v = videoRef.current;
+  const img = imageRef.current;
+  if (!v || !img) return;
+
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = v.videoWidth || 1280;
+    canvas.height = v.videoHeight || 720;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
+
+    img.src = canvas.toDataURL("image/png");
+    img.style.display = "block"; // ✅ keep last frame visible
+  } catch (e) {
+    console.warn("freeze frame failed", e);
+  }
+};
+ 
+
+
+
+  useEffect(() => {
+    if (window.AndroidApp?.onAppReady) {
+      try { window.AndroidApp.onAppReady(); } catch(e){}
+    }
+  }, []);
+
+  /* ================= HEARTBEAT ================= */
+useEffect(() => {
+  const code = localStorage.getItem("pairingCode");
+  if (!code) return;
+
+  const interval = setInterval(() => {
+    socket.emit("heartbeat", code);   // ✅ THIS IS CRITICAL
+  }, 10000);
+
+  return () => clearInterval(interval);
+}, []);
+
+const inferTypeFromPath = (path) => {
+  if (!path) return null;
+  const p = path.split("?")[0].toLowerCase();
+  if (/\.(jpg|jpeg|png|gif|webp|bmp)$/.test(p)) return "image";
+  if (/\.(mp4|webm|ogg|mov|mkv)$/.test(p)) return "video";
+  if (/\.(mp3|m4a|wav|aac|ogg)$/.test(p)) return "audio";
+  return null;
+};
+
+
+
+// INSERT: above the applyPlaylist useEffect
+const mergeResolvedFromCache = (normalized) => {
+  try {
+    const cachedRaw = localStorage.getItem("lastPlaylist");
+    if (!cachedRaw) return normalized;
+    const cached = JSON.parse(cachedRaw);
+    const cachedAssets = (cached.assets || cached.items || []).slice();
+
+    const findMatch = (item) => {
+      if (!item) return null;
+      const name = item.file_name || (item.file_path || "").split("/").pop();
+      for (const c of cachedAssets) {
+        const cName = (c.file_name || (c.file_path || "").split("/").pop()) || "";
+        const cPath = c.file_path || "";
+        if (cName && name && cName === name) return c;
+        if (cPath && item.file_path && cPath === item.file_path) return c;
+      }
+      return null;
+    };
+
+    return normalized.map((it) => {
+      const prev = findMatch(it);
+      if (prev && prev._resolvedSrc) {
+        return { ...it, _resolvedSrc: prev._resolvedSrc, is_local: !!prev.is_local };
+      }
+      return it;
+    });
+  } catch (e) {
+    console.error("mergeResolvedFromCache failed", e);
+    return normalized;
+  }
+};
+
+
+
+  useEffect(() => {
+  const applyPlaylist = () => {
+    if (!window.__PLAYLIST__) return;
+
+    console.warn("🔥 APPLY PLAYLIST (HARD RESET)");
+
+    try {
+      videoRef.current?.pause();
+      audioRef.current?.pause();
+    } catch {}
+
+    setMediaReady(false);
+    setLoadError(false);
+   
+
+    setTimeout(() => {
+      const p = window.__PLAYLIST__;
+      const raw = p.assets || p.items || [];
+
+      const normalized = raw
+        .map((item) => {
+          const filePath = item.file_path || item.src;
+          const fileType = item.file_type || item.type || inferTypeFromPath(filePath);
+          if (!filePath || !fileType) return null;
+          return {
+            file_path: filePath,
+            file_name: item.file_name || filePath.split("/").pop(),
+            file_type: fileType.toLowerCase(),
+            duration: item.duration || 10,
+            is_local: !!item.is_local,
+            _resolvedSrc: item._resolvedSrc || item.resolved_local_path,
+          };
+        })
+        .filter(Boolean);
+
+      const merged = mergeResolvedFromCache(normalized);
+
+      clearTimeout(timerRef.current);
+      setPlaylist(merged);
+      setRevision(p.revision || Date.now());
+      setCurrentIndex(0);
+      setTickerConfig(p.tickerConfig || null);
+    }, 0);
+  };
+
+  
+
+
+  applyPlaylist();
+  window.addEventListener("playlist-updated", applyPlaylist);
+  return () => window.removeEventListener("playlist-updated", applyPlaylist);
+}, []);
+
+// REPLACE / ADD this effect somewhere after the heartbeat effect
+useEffect(() => {
+  const requestPlaylistFromServer = () => {
+    try {
+      const code = localStorage.getItem("pairingCode");
+      if (!code) return;
+      // Ask server to send the current playlist for this pairingCode
+      if (socket && socket.connected) {
+        try {
+          socket.emit("request-playlist", code);
+          console.log("SOCKET: requested playlist for", code);
+        } catch (e) {
+          console.debug("socket.emit(request-playlist) failed", e);
+        }
+      }
+    } catch (e) {
+      console.debug("requestPlaylistFromServer failed", e);
+    }
+  };
+
+  const onSocketConnect = () => {
+    console.log("SOCKET CONNECT -> request playlist and trigger resolver");
+    requestPlaylistFromServer();
+    setResolveTrigger((t) => t + 1);
+  };
+
+  const onPlaylist = (payload) => {
+    try {
+      // payload may be an object or a JSON string depending on server
+      const pl = typeof payload === "string" ? JSON.parse(payload) : payload;
+      console.log("SOCKET: playlist received", pl);
+      // persist and inject into the page the same way MainActivity does
+      try {
+        localStorage.setItem("lastPlaylist", JSON.stringify(pl));
+        window.__PLAYLIST__ = pl;
+        window.dispatchEvent(new Event("playlist-updated"));
+      } catch (e) {
+        console.error("Failed to persist/inject playlist from socket", e);
+      }
+    } catch (e) {
+      console.error("Failed to handle playlist payload", e);
+    }
+  };
+
+  const onOnline = () => {
+  console.log("🌐 ONLINE — forcing media recovery");
+
+  setLoadError(false);
+
+  // 🔥 HARD RESET media pipeline (CRITICAL)
+  try {
+    if (videoRef.current) {
+      videoRef.current.pause();
+      videoRef.current.removeAttribute("src");
+      videoRef.current.load();
+    }
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.removeAttribute("src");
+      audioRef.current.load();
+    }
+  } catch (e) {
+    console.warn("Media reset failed", e);
+  }
+
+  // 🔁 Retry current media (do NOT change index)
+ // 🔁 Retry SAME media safely
+setCurrentIndex((i) => i);
+
+
+
+  // ✅ Your idea stays: request playlist again
+  requestPlaylistFromServer();
+  setResolveTrigger((t) => t + 1);
+};
+
+
+  // attach socket + window listeners
+  try { socket.on("connect", onSocketConnect); } catch(e){ console.debug("socket.on connect failed", e); }
+  try { socket.on("playlist", onPlaylist); } catch(e){ console.debug("socket.on playlist failed", e); }
+  window.addEventListener("online", onOnline);
+
+  return () => {
+    try { socket.off("connect", onSocketConnect); } catch(e){}
+    try { socket.off("playlist", onPlaylist); } catch(e){}
+    window.removeEventListener("online", onOnline);
+  };
+}, []); // run once
+
+  useEffect(() => {
+    console.log("📦 Initial load from cache");
+    const cached = localStorage.getItem("lastPlaylist");
+    if (!cached) return;
+    try {
+      const data = JSON.parse(cached);
+      const raw = data.assets || data.items || [];
+      setPlaylist(
+               raw.map((item) => ({
+  file_path: item.file_path || item.src,
+  file_name: item.file_name || (item.file_path ? item.file_path.split("/").pop() : null),
+  file_type: (item.file_type || item.type || inferTypeFromPath(item.file_path))?.toLowerCase(),
+  duration: item.duration || 10,
+  is_local: !!item.is_local,
+  _resolvedSrc: item._resolvedSrc || item.resolved_local_path || undefined,
+}))
+      );
+      setTickerConfig(data.tickerConfig || null);
+      setRevision(data.revision || Date.now());
+    } catch (e) {
+      console.error("Cache parse failed", e);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (playlist.length) {
+      localStorage.setItem(
+        "lastPlaylist",
+        JSON.stringify({
+          assets: playlist,
+          tickerConfig,
+          revision,
+        })
+      );
+      try { window.__PLAYLIST__ = { assets: playlist, tickerConfig, revision }; } catch(e){}
+    }
+  }, [playlist, tickerConfig, revision]);
+
+  useEffect(() => {
+    if (!playlist.length) return;
+    const current = playlist[currentIndex];
+    if (!current) return;
+    timerRef.current = null;
+    if (current.file_type === "image") {
+      timerRef.current = setTimeout(() => {
+        setCurrentIndex((prev) => (prev + 1 >= playlist.length ? 0 : prev + 1));
+      }, (current.duration || 10) * 1000);
+    }
+    return () => clearTimeout(timerRef.current);
+  }, [currentIndex, playlist, revision]);
+
+ /* const handleVideoEnd = () => {
+    setCurrentIndex((prev) => (prev + 1 >= playlist.length ? 0 : prev + 1));
+  };
+
+  const handleVideoEnd = () => {
+  setCurrentIndex((prev) =>
+    prev + 1 >= playlist.length ? 0 : prev + 1
+  );
+
+  // 🔁 force WebView video remount
+  setPlayVersion((v) => v + 1);
+};
+*/
+
+
+// INSERT: new useEffect to resolve & cache local URIs
+useEffect(() => {
+  if (!playlist.length) return;
+  // We'll build a new array only if we find any resolved srcs to avoid unnecessary state updates
+  let updated = null;
+  try {
+    for (let i = 0; i < playlist.length; i++) {
+      const asset = playlist[i];
+      if (!asset) continue;
+      // skip; already have a resolved src
+if (asset._resolvedSrc) {
+  // already have a cached resolved src for this asset
+  continue;
+}
+
+      if (window.AndroidMedia?.getLocalMediaPath) {
+        const key = asset.file_name || asset.file_path || "";
+        if (!key) continue;
+        try {
+          const local = window.AndroidMedia.getLocalMediaPath(key);
+          if (local && String(local).trim()) {
+            let s = String(local).trim();
+            // normalize common cases: enforce file:// style
+            if (s.startsWith("file:/") && !s.startsWith("file://")) {
+              s = s.replace("file:/", "file://");
+            }
+            if (!updated) updated = playlist.slice();
+            updated[i] = { ...asset, _resolvedSrc: s, is_local: true };
+            console.log("CACHED RESOLVED SRC for", key, "->", s);
+          }
+        } catch (err) {
+          console.debug("AndroidMedia.getLocalMediaPath failed for", key, err);
+        }
+      }
+    }
+  } catch (e) {
+    console.error("resolver effect failed", e);
+  }
+
+  if (updated) {
+    setPlaylist(updated); // persisted via your existing effect to localStorage
+  }
+}, [playlist, resolveTrigger]);
+
+const handleVideoEnd = () => {
+  setPlayCount((c) => c + 1);
+
+  // Single-item video: replay it. Native ExoPlayer loops it; the <video> fallback replays.
+  if (playlist.length === 1) {
+    if (window.AndroidVideo?.play) {
+      try { window.AndroidVideo.play(getMediaSrc(playlist[0])); } catch (e) { console.error(e); }
+    } else {
+      videoRef.current?.play();
+    }
+    return;
+  }
+
+  // Advance to the next item.
+  // NOTE: no freezeLastVideoFrame() anymore — the native player holds its last frame during the
+  // handoff, and that canvas.drawImage(video)+toDataURL readback was a GPU-buffer-pressure suspect.
+  setCurrentIndex((prev) =>
+    prev + 1 >= playlist.length ? 0 : prev + 1
+  );
+};
+
+
+
+  // onLoad / onError handlers show what's happening (these were missing)
+  const handleLoadSuccess = (src) => {
+    console.log("MEDIA LOADED:", src);
+    setLoadError(false);
+  };
+  const handleLoadError = (src, e) => {
+  console.warn("MEDIA LOAD ERROR — HARD RESET:", src, e);
+
+  setLoadError(true);
+
+  setTimeout(() => {
+  setLoadError(false);
+
+  // 🔁 retry SAME index safely (persistent elements)
+  setCurrentIndex((i) => i);
+}, 800);
+
+};
+
+
+
+  const current = playlist[currentIndex];
+
+
+
+  // (only showing the updated parts — replace your existing getMediaSrc and the video JSX/key)
+const getMediaSrc = (asset) => {
+  if (!asset) return "";
+  // Prefer any previously-cached resolved local URI
+if (asset._resolvedSrc) {
+  console.log("RESOLVED SRC (cached _resolvedSrc):", asset._resolvedSrc);
+  return asset._resolvedSrc;
+}
+
+  try {
+    // If asset already a data: URI
+    if (typeof asset.file_path === "string" && asset.file_path.startsWith("data:")) {
+      console.log("RESOLVED SRC (already-data):", asset.file_path.slice(0, 80) + "...");
+      return asset.file_path;
+    }
+
+    // If playlist / Android already marked this asset as local, prefer that immediately
+    if (asset.is_local) {
+      const p = asset.file_path || "";
+      if (p) {
+        console.log("RESOLVED SRC (asset.is_local):", p);
+        return p;
+      }
+    }
+
+    // If playlist already contains a loadable local URI (file: / content:), use it directly
+    if (typeof asset.file_path === "string") {
+      const fp = asset.file_path;
+      if (fp.startsWith("file:") || fp.startsWith("content:") || fp.startsWith("data:")) {
+        console.log("RESOLVED SRC (already-local):", fp);
+        return fp;
+      }
+    }
+
+    // Image: try to get base64 data via Android bridge
+    if (asset.file_type === "image") {
+      try {
+        if (window.AndroidMedia?.getLocalMediaData) {
+          const data = window.AndroidMedia.getLocalMediaData(asset.file_path || asset.file_name || "");
+          if (data && String(data).trim()) {
+            const s = String(data).trim();
+            console.log("RESOLVED SRC (android-data):", s.slice(0, 80) + "...");
+            return s;
+          } else {
+            console.log("AndroidMedia.getLocalMediaData returned empty for", asset.file_path || asset.file_name);
+          }
+        }
+      } catch (e) {
+        console.debug("AndroidMedia.getLocalMediaData call failed", e);
+      }
+    }
+
+    // Ask Android bridge for a local path. Try filename first (some bridges map filename -> local)
+    try {
+      if (window.AndroidMedia?.getLocalMediaPath) {
+        const candidateKeys = [asset.file_name || "", asset.file_path || ""];
+        for (let key of candidateKeys) {
+          if (!key) continue;
+          try {
+            const local = window.AndroidMedia.getLocalMediaPath(key);
+            if (local && String(local).trim()) {
+              const s = String(local).trim();
+              console.log("RESOLVED SRC (android-bridge) for", key, "->", s);
+              // Normalise common cases and return as-is for file:/content:/data:
+              if (s.startsWith("file:") || s.startsWith("content:") || s.startsWith("data:")) return s;
+              if (s.startsWith("/")) return `file://${s}`;
+              if (!s.includes("://")) return `file://${s}`;
+              return s;
+            } else {
+              console.log("AndroidMedia.getLocalMediaPath returned empty for", key);
+            }
+          } catch (innerErr) {
+            console.debug("AndroidMedia.getLocalMediaPath call failed for", key, innerErr);
+          }
+        }
+      }
+    } catch (e) {
+      console.debug("AndroidMedia.getLocalMediaPath call failed", e);
+    }
+
+    // Fallback to network URL (append rev only for network)
+    // ❌ OFFLINE-ONLY SIGNAGE RULE
+console.error("NO LOCAL MEDIA FOUND — will retry after sync:", asset);
+
+// return empty src to trigger error recovery
+return "";
+
+  } catch (err) {
+    console.error("getMediaSrc error", err);
+    return "";
+  }
+};
+  // ── Native video bridge callbacks (Android ExoPlayer -> SPA) ──
+  // Android calls these via evaluateJavascript when the native clip finishes or errors.
+  useEffect(() => {
+    window.__onNativeVideoEnded = () => {
+      try { handleVideoEnd(); } catch (e) { console.error("onNativeVideoEnded failed", e); }
+    };
+    window.__onNativeVideoError = () => {
+      try { handleLoadError("native-video"); } catch (e) { console.error("onNativeVideoError failed", e); }
+    };
+    return () => {
+      try { delete window.__onNativeVideoEnded; } catch {}
+      try { delete window.__onNativeVideoError; } catch {}
+    };
+  }, [playlist]);
+
+  // ── Pre-prepare the NEXT video so transitions are instant (no buffering on local files) ──
+  useEffect(() => {
+    if (!playlist.length) return;
+    const next = playlist[(currentIndex + 1) % playlist.length];
+    if (next?.file_type === "video" && window.AndroidVideo?.prepare) {
+      try { window.AndroidVideo.prepare(getMediaSrc(next)); } catch (e) { console.debug("prepare failed", e); }
+    }
+  }, [currentIndex, playlist]);
+
+  // run when current / revision / playlist changes
+useEffect(() => {
+  if (!playlist.length) return;
+  const current = playlist[currentIndex];
+  if (!current) return;
+
+  // Native video player gets out of the way for non-video items (image/audio).
+  if (current.file_type !== "video") {
+    try { window.AndroidVideo?.stop?.(); } catch {}
+  }
+
+  setMediaReady(false); // hide until ready
+  setLoadError(false);
+
+  const resolvedSrc = getMediaSrc(current);
+
+if (!resolvedSrc) {
+  setCurrentIndex(i => (i + 1) % playlist.length);
+  return;
+}
+
+
+  // cleanup helper
+  let canceled = false;
+  const safeSetMediaReady = (v) => { if (!canceled) setMediaReady(v); };
+  const safeSetLoadError = (v) => { if (!canceled) setLoadError(v); };
+
+  // Handle images (nothing to do here; image element handles it)
+ if (current.file_type === "image") {
+  if (videoRef.current) {
+    videoRef.current.pause();
+  }
+
+  if (imageRef.current) {
+    imageRef.current.src = getMediaSrc(current);
+    imageRef.current.style.display = "block";
+  }
+  if (videoRef.current) {
+  videoRef.current.pause();
+  videoRef.current.classList.remove("ready");
+  videoRef.current.style.display = "none";
+}
+
+
+  safeSetMediaReady(true);
+  return () => { canceled = true; };
+}
+
+// Handle video
+if (current.file_type === "video") {
+  // ── NATIVE ExoPlayer path (on-device): no GPU buffer leak, full quality, plays for hours. ──
+  if (window.AndroidVideo?.play) {
+    try {
+      try { audioRef.current?.pause(); } catch {}
+      // Hide the web image/video; the native surface shows on top of the WebView.
+      if (imageRef.current) imageRef.current.style.display = "none";
+      if (videoRef.current) {
+        videoRef.current.pause();
+        videoRef.current.style.display = "none";
+      }
+      window.AndroidVideo.play(resolvedSrc);   // Android plays it natively at full quality
+      safeSetMediaReady(true);
+    } catch (e) {
+      console.error("AndroidVideo.play failed", e);
+      safeSetLoadError(true);
+    }
+    // Native fires window.__onNativeVideoEnded() when the clip finishes → advances the playlist.
+    return () => { canceled = true; };
+  }
+
+  // ── FALLBACK path: HTML <video> (dev / browser only, when the native bridge is absent) ──
+  try { audioRef.current?.pause(); } catch {}
+
+  const v = videoRef.current;
+  if (!v) {
+    setLoadError(true);
+    return;
+  }
+
+  const onError = (e) => {
+    console.error("video element error", e);
+    setLoadError(true);
+  };
+
+  // ✅ MOVE THIS OUTSIDE try
+  const onNativeError = (ev) => {
+    try {
+      console.error(
+        "VIDEO NATIVE ERROR",
+        v.src,
+        v.currentSrc,
+        ev
+      );
+    } catch (err) {
+      console.error("VIDEO NATIVE ERROR (read failed)", err);
+    }
+  };
+
+  try {
+    v.pause();
+    v.removeAttribute("poster");
+
+    if (imageRef.current) {
+      imageRef.current.style.display = "block";
+    }
+
+    /*v.muted = true;*/
+    v.playsInline = true;
+    v.autoplay = true;
+    v.setAttribute("webkit-playsinline", "true");
+
+    v.src = resolvedSrc;
+    v.style.display = "block";
+    v.load();
+
+    const onPlaying = () => {
+  if (imageRef.current) {
+    imageRef.current.style.display = "none";
+  }
+  v.style.display = "block";
+  v.classList.add("ready");
+};
+
+    v.addEventListener("playing", onPlaying, { once: true });
+    v.addEventListener("error", onError);
+    v.addEventListener("error", onNativeError);
+  } catch (e) {
+    console.error("Failed to setup video", e);
+    setLoadError(true);
+  }
+
+  return () => {
+    try {
+      v.pause();
+      v.classList.remove("ready");
+      v.removeEventListener("error", onError);
+      v.removeEventListener("error", onNativeError); // ✅ NOW IN SCOPE
+    } catch {}
+  };
+}
+  // Handle audio
+  if (current.file_type === "audio") {
+  try {
+    videoRef.current?.pause();
+    videoRef.current.style.display = "none";
+    if (imageRef.current) imageRef.current.style.display = "none";
+  } catch(e){}
+
+
+    const a = audioRef.current;
+    if (!a) {
+      safeSetLoadError(true);
+      return () => { canceled = true; };
+    }
+
+    const onCanPlay = () => {
+      const p = a.play();
+      if (p && p.then) {
+        p.then(() => {
+          safeSetMediaReady(true);
+        }).catch((err) => {
+          console.warn("audio.play() rejected", err);
+          safeSetLoadError(true);
+        });
+      } else {
+        safeSetMediaReady(true);
+      }
+    };
+    const onError = (e) => {
+      console.error("audio element error", e);
+      safeSetLoadError(true);
+    };
+
+    try {
+      a.src = resolvedSrc || "";
+      a.load();
+      a.addEventListener("canplay", onCanPlay, { once: true });
+      a.addEventListener("error", onError);
+    } catch (e) {
+      console.error("Failed to setup audio", e);
+      safeSetLoadError(true);
+    }
+
+    return () => {
+      canceled = true;
+      try {
+        a.removeEventListener("canplay", onCanPlay);
+        a.removeEventListener("error", onError);
+      } catch (e) {}
+    };
+  }
+
+
+  
+
+  // default cleanup
+  return () => { canceled = true; };
+}, [currentIndex, playlist, revision]); // end useEffect
+
+  return (
+    <div
+       
+      style={{
+        width: "100vw",
+        height: "100vh",
+        background: "black",
+        display: "flex",
+        flexDirection: "column",
+        position: "relative",
+      }}
+    >
+      {!current && (
+        <h1 style={{ color: "white" }}>
+          Waiting for playlist... {window.__PLAYLIST__ ? "PLAYLIST EXISTS" : "NO PLAYLIST"}
+        </h1>
+      )}
+
+      <div
+  className="media-layer"
+  style={{
+    flex: 1,
+    position: "relative",
+    background: "black",
+    height:
+      tickerConfig?.enabled && tickerConfig.place === "landscape"
+        ? `calc(100vh - ${tickerConfig.height || 60}px)`
+        : "100vh",
+  }}
+>
+  <video
+    ref={videoRef}
+    className="display-video"
+    
+    playsInline
+    autoPlay
+    loop={playlist.length === 1}
+    preload="auto"          // 🔥 ADD
+  controls={false}        // 🔥 ADD
+  tabIndex={-1}           // 🔥 ADD
+      controlsList="nodownload noplaybackrate"
+    disablePictureInPicture
+    onEnded={handleVideoEnd}
+  />
+
+  <img
+    ref={imageRef}
+    className="display-image"
+    alt=""
+  />
+</div>
+
+
+{/* AUDIO element (hidden UI, reused) */}
+{current?.file_type === "audio" && (
+  <div
+    style={{
+      flex: 1,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      // you can show a placeholder image instead of hiding completely if desired
+      background: "black",
+    }}
+  >
+    <audio
+      ref={audioRef}
+      src={getMediaSrc(current)}
+      autoPlay
+      controls={false}
+      onEnded={handleVideoEnd} // reuse same handler to advance playlist
+      onError={(e) => handleLoadError(getMediaSrc(current), e)}
+    />
+    {/* Optionally show a small "Now playing" or keep it blank */}
+  </div>
+)}
+
+      {/* show overlay when media fails so you don't get a black screen */}
+      {loadError && (
+        <div
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            top: 0,
+            bottom: tickerConfig?.place === "landscape" ? `${tickerConfig.height || 60}px` : "0",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: "white",
+            pointerEvents: "none",
+            background: "rgba(0,0,0,0.4)",
+            zIndex: 10,
+          }}
+        >
+          <div>
+            <h2>Media failed to load</h2>
+            <p>Check WebView console or logs for resolved source</p>
+          </div>
+        </div>
+      )}
+
+      {tickerConfig?.enabled &&
+        Array.isArray(tickerConfig.messages) &&
+        tickerConfig.messages.some((m) => m.trim()) && (
+          <div
+            className={`display-ticker
+      ${tickerConfig.speed || "medium"}
+      ${tickerConfig.direction === "right" ? "right" : "left"}
+      ${tickerConfig.place === "portrait" ? "portrait" : "landscape"}`}
+            style={{
+              height: tickerConfig.place === "landscape" ? tickerConfig.height || 60 : "100%",
+              width: tickerConfig.place === "portrait" ? tickerConfig.height || 60 : "100%",
+              fontSize: `${tickerConfig.fontSize || 20}px`,
+              color: tickerConfig.color,
+              background: tickerConfig.bgColor || "rgba(0,0,0,0.85)",
+              flexShrink: 0,
+            }}
+          >
+            <div className="display-ticker-track">
+              {tickerConfig.messages
+                .filter((msg) => msg.trim())
+                .map((msg, index) => (
+                  <div key={index} className="ticker-item">
+                    <span
+                      className="display-ticker-text"
+                      style={{
+                        color: tickerConfig.color,
+                        textShadow: `0 0 6px ${tickerConfig.color}`,
+                      }}
+                    >
+                      {msg}
+                    </span>
+                  </div>
+                ))}
+            </div>
+          </div>
+        )}
+    </div>
+  );
+}
+
+export default DisplayPage;

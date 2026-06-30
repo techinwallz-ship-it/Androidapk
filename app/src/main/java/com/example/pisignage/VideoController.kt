@@ -1,0 +1,133 @@
+package com.example.pisignage
+
+import android.app.Activity
+import android.net.Uri
+import android.util.Log
+import android.view.TextureView
+import android.view.View
+import android.view.ViewGroup
+import android.widget.FrameLayout
+import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
+
+/**
+ * Plays playlist videos with native ExoPlayer on a TextureView layered on top of the WebView.
+ *
+ * Why this exists: WebView video playback exhausts the GPU buffer queue on weak TV-box GPUs
+ * (image_reader_gl_owner: no buffers in the reader queue → renderer crash → white screen). ExoPlayer
+ * uses the standard native MediaCodec→Surface path, which releases buffers correctly, so full-quality
+ * video plays continuously for hours — just like images do in the WebView.
+ *
+ * The TextureView shows ONLY while a video plays (revealed on the first rendered frame, hidden on
+ * stop), so images/UI/ticker keep rendering in the WebView underneath the rest of the time.
+ *
+ * All public methods MUST be called on the UI thread (the AndroidVideo bridge marshals onto it).
+ */
+class VideoController(
+    private val activity: Activity,
+    private val container: FrameLayout,
+    private val onEnded: () -> Unit,
+    private val onError: () -> Unit,
+) {
+    private var player: ExoPlayer? = null
+    private var textureView: TextureView? = null
+    private var preparedUri: String? = null
+
+    private fun ensure() {
+        if (player != null) return
+        val tv = TextureView(activity).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+            visibility = View.GONE
+        }
+        // Added last → sits on TOP of the WebView in the FrameLayout.
+        container.addView(tv)
+
+        val p = ExoPlayer.Builder(activity).build()
+        p.setVideoTextureView(tv)
+        p.addListener(object : Player.Listener {
+            override fun onPlaybackStateChanged(state: Int) {
+                if (state == Player.STATE_ENDED) {
+                    Log.d("VIDEO", "native clip ended")
+                    onEnded()
+                }
+            }
+
+            override fun onPlayerError(error: PlaybackException) {
+                Log.e("VIDEO", "native player error", error)
+                onError()
+            }
+
+            override fun onRenderedFirstFrame() {
+                // Reveal only when the first frame is ready → no black gap on image→video handoff.
+                tv.visibility = View.VISIBLE
+            }
+        })
+        player = p
+        textureView = tv
+    }
+
+    /** Show + play a video at [src] (a file:// URI), full quality. */
+    fun play(src: String) {
+        ensure()
+        val p = player ?: return
+        try {
+            if (preparedUri != src) {
+                p.setMediaItem(MediaItem.fromUri(Uri.parse(src)))
+                p.prepare()
+                preparedUri = src
+            }
+            p.repeatMode = Player.REPEAT_MODE_OFF
+            p.seekTo(0)
+            p.playWhenReady = true
+            Log.d("VIDEO", "play $src")
+        } catch (e: Exception) {
+            Log.e("VIDEO", "play failed", e)
+            onError()
+        }
+    }
+
+    /** Pre-load [src] so the next play() starts instantly (no buffering on local files). */
+    fun prepare(src: String) {
+        ensure()
+        val p = player ?: return
+        if (preparedUri == src) return
+        try {
+            p.setMediaItem(MediaItem.fromUri(Uri.parse(src)))
+            p.prepare()
+            p.playWhenReady = false
+            preparedUri = src
+            Log.d("VIDEO", "prepared $src")
+        } catch (e: Exception) {
+            Log.w("VIDEO", "prepare failed", e)
+        }
+    }
+
+    /** Hide the native surface (reveal the WebView) — called for image/audio items. */
+    fun stop() {
+        val p = player
+        if (p != null) {
+            try {
+                p.playWhenReady = false
+                p.stop()
+            } catch (e: Exception) {
+                Log.w("VIDEO", "stop failed", e)
+            }
+        }
+        preparedUri = null
+        textureView?.visibility = View.GONE
+    }
+
+    /** Release everything (call from onDestroy). */
+    fun release() {
+        try { player?.release() } catch (e: Exception) {}
+        player = null
+        textureView?.let { (it.parent as? ViewGroup)?.removeView(it) }
+        textureView = null
+        preparedUri = null
+    }
+}

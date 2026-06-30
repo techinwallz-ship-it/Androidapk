@@ -55,6 +55,10 @@ dependencies {
     // WorkManager
     implementation("androidx.work:work-runtime-ktx:2.9.0")
 
+    // Native video playback (ExoPlayer / Media3) — plays playlist videos outside the WebView so
+    // high-quality video runs for hours without the WebView GPU buffer-queue exhaustion.
+    implementation("androidx.media3:media3-exoplayer:1.4.1")
+
     // Compose
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)

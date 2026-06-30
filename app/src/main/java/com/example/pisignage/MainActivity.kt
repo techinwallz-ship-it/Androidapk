@@ -58,6 +58,7 @@ class MainActivity : ComponentActivity() {
     private var adminUnlocked = false
     private lateinit var webView: WebView
     private var webContainer: FrameLayout? = null
+    private var videoController: VideoController? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private var nightlyRunnable: Runnable? = null
 
@@ -222,6 +223,15 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                     webContainer = container
+                    // Native video player (ExoPlayer) lives in this same container, ON TOP of the
+                    // WebView, shown only while a video plays. Created before the WebView so the
+                    // AndroidVideo JS bridge can reference it.
+                    videoController = VideoController(
+                        this@MainActivity,
+                        container,
+                        onEnded = { notifyJs("window.__onNativeVideoEnded") },
+                        onError = { notifyJs("window.__onNativeVideoError") }
+                    )
                     webView = buildWebView(context)
                     container.addView(webView)
                     container
@@ -263,6 +273,7 @@ class MainActivity : ComponentActivity() {
         wv.addJavascriptInterface(AndroidMedia(context), "AndroidMedia")
         wv.addJavascriptInterface(AndroidBridge(context), "AndroidBridge")
         wv.addJavascriptInterface(AndroidApp(context), "AndroidApp")
+        videoController?.let { wv.addJavascriptInterface(AndroidVideo(this, it), "AndroidVideo") }
 
         wv.webViewClient = object : WebViewClient() {
 
@@ -407,10 +418,24 @@ class MainActivity : ComponentActivity() {
         } catch (e: Exception) {
             Log.w("WEBVIEW", "old WebView cleanup failed", e)
         }
-        container.removeAllViews()
         webView = buildWebView(this)
-        container.addView(webView)
+        // Add the WebView BELOW the native video overlay (index 0). Do NOT removeAllViews() — that
+        // would drop the ExoPlayer TextureView the VideoController added.
+        container.addView(webView, 0)
         Log.d("WEBVIEW", "WebView rebuilt in place")
+    }
+
+    /** Calls a JS function in the WebView if it exists — used for native→SPA video callbacks. */
+    private fun notifyJs(fn: String) {
+        runOnUiThread {
+            if (::webView.isInitialized) {
+                try {
+                    webView.evaluateJavascript("if (typeof $fn === 'function') { $fn(); }", null)
+                } catch (e: Exception) {
+                    Log.w("VIDEO", "notifyJs failed", e)
+                }
+            }
+        }
     }
 
     override fun onDestroy() {
@@ -428,6 +453,8 @@ class MainActivity : ComponentActivity() {
             }
         } catch (e: Exception) {}
         SocketManager.disconnect()
+        try { videoController?.release() } catch (e: Exception) {}
+        videoController = null
         if (::webView.isInitialized) {
             try { webView.destroy() } catch (e: Exception) {}
         }
