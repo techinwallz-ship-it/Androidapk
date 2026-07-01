@@ -34,6 +34,7 @@ class VideoController(
     private var player: ExoPlayer? = null
     private var textureView: TextureView? = null
     private var preparedUri: String? = null
+    private var playingUri: String? = null
 
     private fun ensure() {
         if (player != null) return
@@ -82,6 +83,9 @@ class VideoController(
     fun play(src: String) {
         ensure()
         val p = player ?: return
+        // Ignore redundant re-play of the clip that's already playing. Guards against playlist
+        // re-apply storms (repeated socket events) hammering the decoder → OOM/native crash.
+        if (src == playingUri && p.isPlaying) return
         try {
             if (preparedUri != src) {
                 p.setMediaItem(MediaItem.fromUri(Uri.parse(src)))
@@ -91,6 +95,7 @@ class VideoController(
             p.repeatMode = Player.REPEAT_MODE_OFF
             p.seekTo(0)
             p.playWhenReady = true
+            playingUri = src
             Log.d("VIDEO", "play $src")
         } catch (e: Exception) {
             Log.e("VIDEO", "play failed", e)
@@ -100,8 +105,10 @@ class VideoController(
 
     /** Pre-load [src] so the next play() starts instantly (no buffering on local files). */
     fun prepare(src: String) {
-        ensure()
         val p = player ?: return
+        // NEVER disturb a clip that's currently playing — with a single ExoPlayer, calling
+        // setMediaItem() here would interrupt/thrash it. Only pre-load during the image gap.
+        if (p.isPlaying) return
         if (preparedUri == src) return
         try {
             p.setMediaItem(MediaItem.fromUri(Uri.parse(src)))
@@ -126,6 +133,7 @@ class VideoController(
             }
         }
         preparedUri = null
+        playingUri = null
         // Transparent (not GONE/INVISIBLE) so the surface stays alive for the next video; the
         // WebView shows through for the current image.
         textureView?.alpha = 0f
