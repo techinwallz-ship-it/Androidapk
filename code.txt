@@ -532,8 +532,10 @@ useEffect(() => {
   const current = playlist[currentIndex];
   if (!current) return;
 
-  // Native video player gets out of the way for non-video items (image/audio).
-  if (current.file_type !== "video") {
+  // AUDIO has no visual, so hide the native video immediately. For IMAGES we defer the hide until
+  // the image has decoded (see the image branch below) so the video's last frame holds through the
+  // handoff — no black gap on the video→image transition.
+  if (current.file_type === "audio") {
     try { window.AndroidVideo?.stop?.(); } catch {}
   }
 
@@ -555,20 +557,21 @@ if (!resolvedSrc) {
 
   // Handle images (nothing to do here; image element handles it)
  if (current.file_type === "image") {
+  if (imageRef.current) {
+    const img = imageRef.current;
+    // Hide the native video ONLY once the new image has decoded → the video's last frame holds
+    // through the handoff, so no black gap on the video→image transition.
+    img.onload = () => { try { window.AndroidVideo?.stop?.(); } catch {} };
+    img.src = getMediaSrc(current);
+    img.style.display = "block";
+  }
   if (videoRef.current) {
     videoRef.current.pause();
+    videoRef.current.classList.remove("ready");
+    videoRef.current.style.display = "none";
   }
-
-  if (imageRef.current) {
-    imageRef.current.src = getMediaSrc(current);
-    imageRef.current.style.display = "block";
-  }
-  if (videoRef.current) {
-  videoRef.current.pause();
-  videoRef.current.classList.remove("ready");
-  videoRef.current.style.display = "none";
-}
-
+  // Safety: if onload doesn't fire (e.g. an identical cached src), hide the video shortly anyway.
+  setTimeout(() => { try { window.AndroidVideo?.stop?.(); } catch {} }, 600);
 
   safeSetMediaReady(true);
   return () => { canceled = true; };
@@ -580,8 +583,9 @@ if (current.file_type === "video") {
   if (window.AndroidVideo?.play) {
     try {
       try { audioRef.current?.pause(); } catch {}
-      // Hide the web image/video; the native surface shows on top of the WebView.
-      if (imageRef.current) imageRef.current.style.display = "none";
+      // Do NOT hide the current <img> — the native video surface (revealed ON TOP of the WebView on
+      // its first frame) will cover it. Keeping the image up until then avoids a black gap on the
+      // image→video transition.
       if (videoRef.current) {
         videoRef.current.pause();
         videoRef.current.style.display = "none";

@@ -21,7 +21,7 @@ import android.util.Log
  */
 object Watchdog {
 
-    private const val INTERVAL_MS = 10 * 60 * 1000L // 10 minutes
+    private const val INTERVAL_MS = 5 * 60 * 1000L // 5 minutes (faster recovery if the app dies)
     private const val REQUEST_CODE = 7710
 
     /** Arms (or re-arms) the next watchdog tick. Self-rescheduled from the receiver each fire. */

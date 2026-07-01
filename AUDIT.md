@@ -295,23 +295,43 @@ native ExoPlayer, the way commercial signage does.
 **Contract:** JS→Android `AndroidVideo.play(src)/prepare(src)/stop()`; Android→JS
 `window.__onNativeVideoEnded()/__onNativeVideoError()`. `src` is a `file://` URI.
 
-**Status:** Android side built clean (`assembleDebug`). SPA edits ported into the live bundle by the
-user. Field-testing in progress (1 video + 1 photo, to isolate).
+**Status (2026-07-01):** ✅ **Native video CONFIRMED** — one release box ran **24+ hrs** playing video
+with no white screen. User runs **release** builds (not debug).
 
-**Surface bug fixed during bring-up (2026-06-30):** native video first showed **black** (audio/clip
-ran — `play` → `native clip ended` — but `onRenderedFirstFrame` never fired = ExoPlayer had no
-surface). Root rule: **a `TextureView` only creates its `SurfaceTexture` when the view is actually
-*drawn*; `GONE`/`INVISIBLE` views are not drawn → no surface → black.** Fix: keep the `TextureView`
-`VISIBLE` and toggle **`alpha`** (0 = transparent-but-drawn so the surface stays alive and the WebView
-shows through for images; 1 = revealed on first frame). Watch `VIDEO: first frame rendered` to confirm.
+**Bring-up fixes:**
+- **Black video (2026-06-30):** `TextureView` created its `SurfaceTexture` only when *drawn*;
+  `GONE`/`INVISIBLE` views aren't drawn → no surface → black (audio played, `onRenderedFirstFrame`
+  never fired). Fix: keep the view `VISIBLE`, toggle **`alpha`** (0 idle = transparent-but-drawn so the
+  surface stays alive and the WebView shows for images; 1 on first frame). Confirm via
+  `VIDEO: first frame rendered`.
+- **Playlist re-apply storm killed a box (2026-07-01):** the SPA re-applied the playlist several
+  times/second (repeated socket `playlist` events + `inject failed DOMException`), hammering the single
+  ExoPlayer with fighting `play`/`prepare` calls → decoder thrash → **process crash/OOM, no restart →
+  black**. Hardened `VideoController`: `play()` ignores redundant re-play of the clip already playing;
+  `prepare()` is a **no-op while a clip is playing** (with one player, `setMediaItem` there would
+  interrupt/thrash the current clip).
+- **Decoder error self-recovery:** `onPlayerError` now re-prepares the same clip **once** before giving
+  up (then advances via the SPA).
+- **Smooth transitions (code.txt):** image→video keeps the `<img>` up until the video's first frame
+  covers it; video→image holds the video's last frame until the new image `onload` (then `stop()`), with
+  a 600 ms safety. → no black gap either direction.
+- **Faster recovery:** watchdog interval 10 → **5 min**.
 
-**Open follow-ups:**
-- During the 5-video test only `cnc_vid10.mp4` played repeatedly — verify the SPA advances through all
-  videos (playlist/index issue, not the player).
-- Ticker: native video is full-screen, so it **covers the ticker** during videos — sizing the surface
-  below the ticker needs the SPA to pass the ticker height (follow-up).
-- If a box still shows black *with* `first frame rendered` logged → z-order (WebView on top); force the
-  layering.
+**Follow-up status:**
+- **All-5 video rotation — appears WORKING:** the storm log showed `dips_img3/4/5.mp4` cycling through
+  prepare/play. (The earlier "only cnc_vid10" was a single-video test playlist.) Confirm on a clean run.
+- **Ticker over video — STILL OPEN:** native video is full-screen and covers the ticker during videos.
+  Needs `AndroidVideo.play(src, bottomMarginPx)` + the SPA passing the ticker height so the surface is
+  sized below it. Not done yet.
+
+**⚠️ RELEASE-BOX RECOVERY (must verify):** a native ExoPlayer/MediaCodec **hard crash** (or OOM) kills
+the whole process — the WebView `onRenderProcessGone` recovery does NOT cover that; only the foreground
+service (`START_STICKY`) + watchdog + BootReceiver do, and background activity-start is not 100% on
+non-Device-Owner boxes. **Two required actions per box:** (1) run the **latest** release build on ALL
+boxes (the dead box may have been an older release lacking the recovery); (2) **set the app as the
+default HOME launcher** (the CATEGORY_HOME filter exists) — then any death returns to the app because it
+IS home. This is the most reliable "never home/white" guarantee without Device Owner. Also debounce the
+SPA playlist re-apply (skip if `revision` unchanged) to kill the storm at its source.
 
 ---
 

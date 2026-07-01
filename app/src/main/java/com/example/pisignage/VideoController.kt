@@ -35,6 +35,7 @@ class VideoController(
     private var textureView: TextureView? = null
     private var preparedUri: String? = null
     private var playingUri: String? = null
+    private var errorRetries = 0
 
     private fun ensure() {
         if (player != null) return
@@ -64,12 +65,29 @@ class VideoController(
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                Log.e("VIDEO", "native player error", error)
-                onError()
+                Log.e("VIDEO", "native player error (${error.errorCodeName})", error)
+                val src = playingUri
+                // Self-heal a transient decoder error by re-preparing the same clip once.
+                if (src != null && errorRetries < 1) {
+                    errorRetries++
+                    try {
+                        p.setMediaItem(MediaItem.fromUri(Uri.parse(src)))
+                        p.prepare()
+                        p.seekTo(0)
+                        p.playWhenReady = true
+                        Log.w("VIDEO", "retrying $src after error")
+                        return
+                    } catch (e: Exception) {
+                        Log.e("VIDEO", "retry failed", e)
+                    }
+                }
+                errorRetries = 0
+                onError() // give up → SPA advances/recovers to the next item
             }
 
             override fun onRenderedFirstFrame() {
                 // Reveal only when the first frame is ready → no black gap on image→video handoff.
+                errorRetries = 0
                 Log.d("VIDEO", "first frame rendered → showing video")
                 tv.bringToFront() // ensure it sits above the WebView
                 tv.alpha = 1f
