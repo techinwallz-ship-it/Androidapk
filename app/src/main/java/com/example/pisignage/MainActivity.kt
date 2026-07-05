@@ -461,6 +461,15 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
     }
 
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        // Under memory pressure, drop the WebView's caches (safe — just frees caches, not state).
+        // Helps the RAM-tight 2 GB boxes that hit LOW_MEMORY running WebView + ExoPlayer together.
+        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+            try { if (::webView.isInitialized) webView.freeMemory() } catch (e: Exception) {}
+        }
+    }
+
     /**
      * Schedules a preventive in-place WebView rebuild for the next 03:00 local time, repeating
      * daily. Uses a removable handler (cleared in onDestroy) — NOT webView.postDelayed, whose

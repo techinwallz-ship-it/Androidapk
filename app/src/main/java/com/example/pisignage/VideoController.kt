@@ -10,6 +10,7 @@ import android.widget.FrameLayout
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 
 /**
@@ -54,7 +55,12 @@ class VideoController(
         // Added last → sits on TOP of the WebView in the FrameLayout.
         container.addView(tv)
 
-        val p = ExoPlayer.Builder(activity).build()
+        // Small buffers: local files don't need much, and this cuts native memory on RAM-tight
+        // 2 GB boxes that were hitting LOW_MEMORY / heavy zram swap.
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(5_000, 15_000, 500, 2_000)
+            .build()
+        val p = ExoPlayer.Builder(activity).setLoadControl(loadControl).build()
         p.setVideoTextureView(tv)
         p.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
