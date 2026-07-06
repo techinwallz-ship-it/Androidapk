@@ -335,6 +335,45 @@ SPA playlist re-apply (skip if `revision` unchanged) to kill the storm at its so
 
 ---
 
+## ⚠️ MEMORY EXHAUSTION on 2 GB boxes — the current blocker (2026-07-06)
+
+After native video went in, boxes **freeze / stick / go black within hours** (both boxes; the "good"
+box that once ran 24 hrs now also fails within ~3 hrs). Diagnosis is conclusive: **the box is out of
+RAM**, not thermal, not a decoder crash.
+
+**Evidence:**
+- `/proc/meminfo`: `MemTotal 2 GB` but **`MemAvailable ~37 MB`** (~98% used); **~291 MB zram swap** in use.
+- `dumpsys activity exit-info`: WebView renderer killed with **`reason=3 (LOW_MEMORY)`** (LMK).
+- `MEMSTAT`: `avail` 42–216 MB, **`low=true` always**; app **pid changed** (died & restarted under pressure).
+- App main process PSS ~34 MB but **Native Heap `Alloc` ~180 MB** (mostly swapped).
+
+**Why it started after ExoPlayer:** before, video played *in* the WebView (one footprint; its problem
+was GPU buffers, not RAM). Now the **WebView (images/UI, still fully loaded) + ExoPlayer (native decoder
+in the MAIN process) run together** → bigger footprint on a box already at its RAM limit.
+
+**Why 24 hrs → 3 hrs (content-dependent):** 1 repeated video barely reconfigures the HW decoder (24 hrs);
+**5 rotating videos** reconfigure it constantly and each switch leaks a little native memory → creeps up
+fast → starves the zero-headroom box in hours. **More distinct videos = faster death.**
+
+**Fixes applied (code):**
+- ExoPlayer **small `DefaultLoadControl` buffers** (5s/15s) — local files don't need big buffers.
+- `MainActivity.onTrimMemory` → **`webView.freeMemory()`** under pressure (WebView is covered during video).
+- **Recycle the ExoPlayer every 10 clips** (`release()`+recreate) to reclaim accumulated decoder memory —
+  bounds the per-clip creep. Watch `VIDEO: recycling ExoPlayer to free decoder memory`.
+
+**Fixes REQUIRED per-device (higher impact than any code — NOT done yet):**
+- **Free RAM by disabling Google-TV bloatware** the signage doesn't need (frees ~200–300 MB):
+  `pm disable-user --user 0 com.google.android.katniss` (Assistant),
+  `com.google.android.tvrecommendations`, `com.google.android.gms.setup`. Verify with
+  `cat /proc/meminfo | grep MemAvailable` (should jump from ~37 MB to hundreds). Reversible via `pm enable`.
+
+**Hardware reality:** both the earlier GPU white-screen and this RAM freeze stem from the **2 GB box being
+under-spec'd** for full-quality WebView + video. If, after the code fixes + freeing RAM, a 2 GB box still
+can't sustain several full-quality videos for a day, the fix is **boxes with more RAM (3–4 GB)** — full
+quality is non-negotiable per the client, so the hardware must match it.
+
+---
+
 ## Open Issues — Needs Fixing (Priority Order)
 
 ### CRITICAL
