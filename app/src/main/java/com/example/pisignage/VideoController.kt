@@ -37,6 +37,8 @@ class VideoController(
     private var preparedUri: String? = null
     private var playingUri: String? = null
     private var errorRetries = 0
+    private var clipCount = 0
+    private val recreateEvery = 10 // recycle the player every N clips to reclaim decoder memory
 
     private fun ensure() {
         if (player != null) return
@@ -106,10 +108,21 @@ class VideoController(
     /** Show + play a video at [src] (a file:// URI), full quality. */
     fun play(src: String) {
         ensure()
+        // Ignore redundant re-play of the clip already playing (storm guard). Check before counting.
+        if (player?.let { it.isPlaying && src == playingUri } == true) return
+
+        // Periodically recycle the whole player to reclaim accumulated native decoder memory. Each
+        // switch to a DIFFERENT clip reconfigures the HW decoder and leaks a little; with several
+        // videos rotating this creeps up over hours and starves the 2 GB box. A full release+recreate
+        // every N clips bounds that growth.
+        if (++clipCount >= recreateEvery) {
+            clipCount = 0
+            Log.d("VIDEO", "recycling ExoPlayer to free decoder memory")
+            release()
+            ensure()
+        }
+
         val p = player ?: return
-        // Ignore redundant re-play of the clip that's already playing. Guards against playlist
-        // re-apply storms (repeated socket events) hammering the decoder → OOM/native crash.
-        if (src == playingUri && p.isPlaying) return
         try {
             if (preparedUri != src) {
                 p.setMediaItem(MediaItem.fromUri(Uri.parse(src)))
@@ -170,5 +183,6 @@ class VideoController(
         textureView?.let { (it.parent as? ViewGroup)?.removeView(it) }
         textureView = null
         preparedUri = null
+        playingUri = null
     }
 }
