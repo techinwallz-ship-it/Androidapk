@@ -367,10 +367,33 @@ fast → starves the zero-headroom box in hours. **More distinct videos = faster
   `com.google.android.tvrecommendations`, `com.google.android.gms.setup`. Verify with
   `cat /proc/meminfo | grep MemAvailable` (should jump from ~37 MB to hundreds). Reversible via `pm enable`.
 
-**Hardware reality:** both the earlier GPU white-screen and this RAM freeze stem from the **2 GB box being
-under-spec'd** for full-quality WebView + video. If, after the code fixes + freeing RAM, a 2 GB box still
-can't sustain several full-quality videos for a day, the fix is **boxes with more RAM (3–4 GB)** — full
-quality is non-negotiable per the client, so the hardware must match it.
+**⚠️ Box firmware is ALSO broken (2026-07-07, from a tombstone in log.txt):** the boxes are cheap
+**Allwinner `athena_p7`, Android 12, userdebug/test-keys** units with two firmware-level faults our app
+cannot fix:
+- **Broken Low-Memory-Killer:** `lowmemorykiller: /dev/memcg/memory.usage_in_bytes open: No such file`
+  → `Reclaimed 0kB` → the box can't reclaim memory under pressure, so it thrashes/freezes instead of
+  recovering.
+- **Crashing vendor drivers:** native `SIGSEGV` tombstone in the box's own audio HAL
+  (`/vendor/lib/libhbgdecode.so ResetRingBuffer`, `audio.blehid.default.so`) — not our process.
+
+So the freezes are **box hardware + firmware** (too little RAM + broken LMK + crashing HALs), with our app
+as the victim. **No app code fixes broken firmware.**
+
+**RAM-minimization options (app-side, to squeeze into the tight box — ~50–100 MB potential):**
+1. **Release ExoPlayer fully during images / between videos** (not just recycle every 10) — frees the
+   video decoder (biggest native chunk) whenever a video isn't on screen. HIGH impact if playlist has images.
+2. **Images via `file://` not base64** — lower the `getLocalMediaData` cap so images load from disk and the
+   WebView frees them off-screen (cuts JS-heap + bitmaps). MED-HIGH.
+3. **`webView.freeMemory()` when a video starts** (it's fully covered). MED.
+4. **Even smaller ExoPlayer buffers** (2s/8s). LOW.
+5. **Disable unused WebView features** (`databaseEnabled`, etc.). LOW.
+Caveat: with the LMK broken, freeing RAM reduces *how often* pressure hits but can't fix the box's inability
+to recover from it.
+
+**Hardware reality:** both the earlier GPU white-screen and this RAM freeze stem from the **2 GB Allwinner
+test-keys box being under-spec'd and buggy** for full-quality WebView + video. Combine bloatware-disable +
+the app-side RAM cuts as the best software attempt; if it still freezes, the fix is **better boxes (3–4 GB
+RAM, proper production firmware)** — full quality is non-negotiable per the client, so the hardware must match it.
 
 ---
 
