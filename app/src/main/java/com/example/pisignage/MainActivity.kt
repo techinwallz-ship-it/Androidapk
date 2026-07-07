@@ -230,7 +230,13 @@ class MainActivity : ComponentActivity() {
                         this@MainActivity,
                         container,
                         onEnded = { notifyJs("window.__onNativeVideoEnded") },
-                        onError = { notifyJs("window.__onNativeVideoError") }
+                        onError = { notifyJs("window.__onNativeVideoError") },
+                        onVideoStarted = {
+                            // WebView is covered during video → free its caches to save RAM.
+                            runOnUiThread {
+                                try { if (::webView.isInitialized) webView.freeMemory() } catch (e: Exception) {}
+                            }
+                        }
                     )
                     webView = buildWebView(context)
                     container.addView(webView)

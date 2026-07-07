@@ -14,7 +14,11 @@ import java.nio.charset.StandardCharsets
 class AndroidMedia(private val context: Context) {
 
     companion object {
-        private const val MAX_DATA_URI_BYTES = 4 * 1024 * 1024L // 4 MB
+        // Lowered from 4 MB → 256 KB to save RAM: images larger than this return "" here, so the SPA
+        // falls back to getLocalMediaPath() (a file:// URI). file:// images are loaded from disk and
+        // freed by the WebView when off-screen, instead of being held as big base64 blobs in the JS
+        // heap. Tiny icons (< 256 KB) still use base64. (AUDIT: RAM-minimization #2)
+        private const val MAX_DATA_URI_BYTES = 256 * 1024L // 256 KB
     }
 
     private fun L(tag: String, msg: String) { Log.d("AndroidMedia", "$tag: $msg") }

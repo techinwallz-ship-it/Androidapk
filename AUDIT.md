@@ -379,16 +379,23 @@ cannot fix:
 So the freezes are **box hardware + firmware** (too little RAM + broken LMK + crashing HALs), with our app
 as the victim. **No app code fixes broken firmware.**
 
-**RAM-minimization options (app-side, to squeeze into the tight box — ~50–100 MB potential):**
-1. **Release ExoPlayer fully during images / between videos** (not just recycle every 10) — frees the
-   video decoder (biggest native chunk) whenever a video isn't on screen. HIGH impact if playlist has images.
-2. **Images via `file://` not base64** — lower the `getLocalMediaData` cap so images load from disk and the
-   WebView frees them off-screen (cuts JS-heap + bitmaps). MED-HIGH.
-3. **`webView.freeMemory()` when a video starts** (it's fully covered). MED.
-4. **Even smaller ExoPlayer buffers** (2s/8s). LOW.
-5. **Disable unused WebView features** (`databaseEnabled`, etc.). LOW.
-Caveat: with the LMK broken, freeing RAM reduces *how often* pressure hits but can't fix the box's inability
-to recover from it.
+**RAM-minimization — IMPLEMENTED (2026-07-07):**
+1. ✅ **Release ExoPlayer fully between videos** — `stop()` now calls `release()` (not just pause), freeing
+   the native video decoder whenever a video isn't on screen; `play()` recreates it for the next video, and
+   `prepare()` is skipped while released so the memory stays freed during images. **Biggest saver.**
+2. ✅ **Images via `file://` not base64** — `AndroidMedia` base64 cap lowered 4 MB → 256 KB, so photos load
+   from disk (WebView frees them off-screen) instead of big base64 blobs in the JS heap.
+3. ✅ **`webView.freeMemory()` on video start** — `onVideoStarted` hook frees WebView caches while it's
+   covered by the video.
+4. (already) small ExoPlayer buffers (5s/15s) + recycle every 10 clips.
+
+**Expected outcome (honest):** these cut our footprint by an estimated ~50–100 MB — best case when the
+playlist has images between videos (the decoder is freed during them). It should play **much longer** and
+gives the best chance of running for hours **if combined with disabling the bloatware** (~200–300 MB). It
+will NOT show a "RAM full" message — if RAM still runs out, the box **freezes** (the same failure). Because
+the box's **LMK is broken** and it's only **2 GB**, this reduces *how often* pressure hits but can't
+guarantee it on these Allwinner test-keys boxes. If it still freezes after these + bloatware-disable → it's
+the hardware, and the fix is **better boxes (3–4 GB, production firmware)**.
 
 **Hardware reality:** both the earlier GPU white-screen and this RAM freeze stem from the **2 GB Allwinner
 test-keys box being under-spec'd and buggy** for full-quality WebView + video. Combine bloatware-disable +

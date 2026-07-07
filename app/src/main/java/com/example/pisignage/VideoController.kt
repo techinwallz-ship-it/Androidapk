@@ -31,6 +31,7 @@ class VideoController(
     private val container: FrameLayout,
     private val onEnded: () -> Unit,
     private val onError: () -> Unit,
+    private val onVideoStarted: () -> Unit = {},
 ) {
     private var player: ExoPlayer? = null
     private var textureView: TextureView? = null
@@ -134,6 +135,8 @@ class VideoController(
             p.playWhenReady = true
             playingUri = src
             Log.d("VIDEO", "play $src")
+            // The WebView is fully covered while a video plays — free its caches to save RAM.
+            try { onVideoStarted() } catch (e: Exception) {}
         } catch (e: Exception) {
             Log.e("VIDEO", "play failed", e)
             onError()
@@ -158,22 +161,14 @@ class VideoController(
         }
     }
 
-    /** Hide the native surface (reveal the WebView) — called for image/audio items. */
+    /**
+     * Called for image/audio items. FULLY RELEASES the player (not just pause) to free the native
+     * video-decoder memory — the biggest RAM saver on tight boxes. Removing the TextureView also
+     * reveals the WebView. play() recreates the player for the next video (pre-prepare is skipped
+     * while released, so the decoder memory stays freed during images).
+     */
     fun stop() {
-        val p = player
-        if (p != null) {
-            try {
-                p.playWhenReady = false
-                p.stop()
-            } catch (e: Exception) {
-                Log.w("VIDEO", "stop failed", e)
-            }
-        }
-        preparedUri = null
-        playingUri = null
-        // Transparent (not GONE/INVISIBLE) so the surface stays alive for the next video; the
-        // WebView shows through for the current image.
-        textureView?.alpha = 0f
+        release()
     }
 
     /** Release everything (call from onDestroy). */
